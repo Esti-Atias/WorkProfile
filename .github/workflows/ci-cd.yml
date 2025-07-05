@@ -6,9 +6,7 @@ on:
       - main
 
 env:
-  # שם התמונה ב-GitHub Container Registry (GHCR)
-  # ghcr.io/<שם-משתמש-github>/<שם-המאגר-github>
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner | lower }}/${{ github.event.repository.name | lower }}
 
 jobs:
   build_and_test:
@@ -32,7 +30,7 @@ jobs:
             patch=$((patch + 1))
             new_tag="${major}.${minor}.${patch}"
           fi
-          echo "new_tag=v$new_tag" >> $GITHUB_OUTPUT 
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -48,7 +46,7 @@ jobs:
       - name: Wait for app to be ready
         run: |
           for i in {1..15}; do
-            if curl -s http://localhost:8081/health | grep -q "Healthy"; then
+            if curl -s http://localhost:8081/health | grep -q "Application: Healthy"; then
               echo "App is ready!"
               exit 0
             fi
@@ -60,7 +58,6 @@ jobs:
       - name: Test root endpoint "/"
         run: |
           response_root=$(curl -s http://localhost:8081/)
-          # וודאו שהטקסטים הללו תואמים את הפלט האמיתי שלכם!
           if echo "$response_root" | grep -q "DB Host:" && \
              echo "$response_root" | grep -q "Add Person" && \
              echo "$response_root" | grep -q "John Doe"; then
@@ -112,12 +109,12 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Get the tag from build_and_test job 
+      - name: Get the tag from build_and_test job
         id: get_tag
         run: |
           git fetch --tags
           latest_tag=$(git tag -l "v*" | sort -V | tail -n 1)
-          echo "new_tag=$latest_tag" >> $GITHUB_OUTPUT
+          echo "new_tag=$(echo $latest_tag | sed 's/^v//')" >> $GITHUB_OUTPUT 
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -135,7 +132,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.get_tag.outputs.new_tag }}
+            ${{ env.IMAGE_NAME }}:v${{ steps.get_tag.outputs.new_tag }} 
             ${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
