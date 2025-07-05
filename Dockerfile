@@ -1,10 +1,7 @@
-FROM python:3.9-slim-buster 
+FROM python:3.9-slim-buster AS builder
 
+WORKDIR /app
 
- WORKDIR /app 
-
-
- COPY requirements.txt . 
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -15,20 +12,26 @@ RUN apt-get update && \
     libffi-dev && \
     rm -rf /var/lib/apt/lists/*
 
- RUN pip install --no-cache-dir -r requirements.txt 
-
- COPY static/ static/ 
-
- COPY templates/ templates/ 
-
- COPY app.py . 
-
- COPY dbcontext.py . 
-
- COPY person.py . 
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 
- EXPOSE 5000 
+COPY static/ static/
+COPY templates/ templates/
+COPY app.py dbcontext.py person.py ./
+
+# =============================================================================
 
 
- CMD ["python", "app.py"]
+FROM python:3.9-alpine
+
+WORKDIR /app
+
+
+COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
+
+COPY --from=builder /app /app
+
+EXPOSE 5000
+
+ENTRYPOINT ["python", "app.py"]
