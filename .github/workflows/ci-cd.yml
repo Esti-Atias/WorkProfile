@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner | lower }}/${{ github.event.repository.name | lower }}
+  BASE_IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
   build_and_test:
@@ -15,6 +15,15 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+
+      - name: Set lowercase image name
+        id: set_image_name
+        run: |
+          REPO_OWNER_LOWERCASE=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO_NAME_LOWERCASE=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
+          echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
+
 
       - name: Get the latest tag from the repository and increment patch version
         id: increment_version
@@ -32,16 +41,17 @@ jobs:
           fi
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
         run: |
-          docker buildx build --load --tag $IMAGE_NAME:v${{ steps.increment_version.outputs.new_tag }} .
+          docker buildx build --load --tag ${{ steps.set_image_name.outputs.full_image_name }}:v${{ steps.increment_version.outputs.new_tag }} .
 
       - name: Run Docker container
         run: |
-          docker run -d -p 8081:5000 --name workprofile-test-app $IMAGE_NAME:v${{ steps.increment_version.outputs.new_tag }}
+          docker run -d -p 8081:5000 --name workprofile-test-app ${{ steps.set_image_name.outputs.full_image_name }}:v${{ steps.increment_version.outputs.new_tag }}
 
       - name: Wait for app to be ready
         run: |
@@ -109,12 +119,20 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Set lowercase image name for publish
+        id: set_image_name_publish
+        run: |
+          REPO_OWNER_LOWERCASE=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO_NAME_LOWERCASE=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
+          echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
+
       - name: Get the tag from build_and_test job
         id: get_tag
         run: |
           git fetch --tags
           latest_tag=$(git tag -l "v*" | sort -V | tail -n 1)
-          echo "new_tag=$(echo $latest_tag | sed 's/^v//')" >> $GITHUB_OUTPUT 
+          echo "new_tag=$(echo $latest_tag | sed 's/^v//')" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -132,7 +150,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:v${{ steps.get_tag.outputs.new_tag }} 
-            ${{ env.IMAGE_NAME }}:latest
+            ${{ steps.set_image_name_publish.outputs.full_image_name }}:v${{ steps.get_tag.outputs.new_tag }}
+            ${{ steps.set_image_name_publish.outputs.full_image_name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
