@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  BASE_IMAGE_NAME: ghcr.io/${{ github.repository }}
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner | lower }}/${{ github.event.repository.name | lower }}
 
 jobs:
   build_and_test:
@@ -96,18 +96,21 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: 'refs/tags/v' + '${{ steps.increment_version.outputs.new_tag }}',
-              sha: context.sha
-            });
-            github.rest.git.createTag({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag: 'v' + '${{ steps.increment_version.outputs.new_tag }}',
-              message: 'Release v' + '${{ steps.increment_version.outputs.new_tag }}'
-            });
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'refs/tags/v' + '${{ steps.increment_version.outputs.new_tag }}',
+                sha: context.sha
+              });
+              console.log('Successfully created Git tag: v' + '${{ steps.increment_version.outputs.new_tag }}');
+            } catch (error) {
+              if (error.status === 422 && error.data.message.includes('Reference already exists')) {
+                console.log('Git tag already exists, skipping creation.');
+              } else {
+                throw error;
+              }
+            }
 
 
   publish:
