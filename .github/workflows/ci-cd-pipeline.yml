@@ -243,10 +243,10 @@ jobs:
           IMAGE_TAG_USED=$(grep "image:" docker-compose/docker-compose.yml | grep -E "ghcr.io" | awk '{print $2}')
           echo "Image tag that Docker Compose will attempt to use: $IMAGE_TAG_USED"
           
-if [[ -z "$IMAGE_TAG_USED" || "$IMAGE_TAG_USED" == *"YOUR_APP_IMAGE_PLACEHOLDER"* ]]; then
-        echo "ERROR: Image tag placeholder was NOT replaced correctly or tag is incomplete!"
-        exit 1
-      fi
+          if [[ -z "$IMAGE_TAG_USED" || "$IMAGE_TAG_USED" == *"YOUR_APP_IMAGE_PLACEHOLDER"* ]]; then
+            echo "ERROR: Image tag placeholder was NOT replaced correctly or tag is incomplete!"
+            exit 1
+          fi
           
           echo "Attempting to pull the image directly for verification..."
           docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
