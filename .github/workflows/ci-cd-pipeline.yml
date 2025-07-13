@@ -258,6 +258,22 @@ jobs:
           test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in parent directory!"
           echo "Checking if Dockerfile exists in current directory from here (not expected):"
           test -f Dockerfile && echo "✓ Dockerfile found in current directory (unexpected)" || echo "✗ Dockerfile NOT found in current directory!"
+          
+          echo "--- Checking Dockerfile size and content on the runner ---"
+          if [ -f ../Dockerfile ]; then
+            echo "Size of Dockerfile: $(du -b ../Dockerfile | awk '{print $1}') bytes"
+            echo "First 100 characters of Dockerfile:"
+            head -c 100 ../Dockerfile
+            echo ""
+            echo "Last 100 characters of Dockerfile:"
+            tail -c 100 ../Dockerfile
+            echo ""
+            echo "Full content of Dockerfile:"
+            cat ../Dockerfile
+          else
+            echo "Dockerfile does not exist at ../Dockerfile to inspect content."
+          fi
+          echo "---------------------------------------------------------"
 
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
