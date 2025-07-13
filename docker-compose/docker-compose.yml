@@ -1,57 +1,76 @@
 version: '3.8'
 
-services:
-  nginx:
-    image: nginx:latest
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - frontend_network
-      - backend_network
-    depends_on:
-      - app
-
-  app:
-    image: YOUR_APP_IMAGE_PLACEHOLDER
-    ports:
-      - "5000:5000"
-    environment:
-      MYSQL_HOST: db
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
-      MYSQL_DB: workprofile_db
-    networks:
-      - backend_network
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: workprofile_db
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
-    volumes:
-      - db_data:/var/lib/mysql
-      - ../src/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - backend_network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "user", "-ppassword"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
 networks:
   frontend_network:
-    driver: bridge
   backend_network:
-    driver: bridge
 
 volumes:
   db_data:
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: docker-compose-db-1
+    restart: always
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./src/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      MYSQL_ROOT_PASSWORD: flaskapp
+      MYSQL_DATABASE: exampleDb
+      MYSQL_USER: flaskapp
+      MYSQL_PASSWORD: flaskapp
+    ports:
+      - "3306:3306"
+    networks:
+      - backend_network
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u", "root", "-pflaskapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docker-compose-app-1
+    restart: always
+    environment:
+      DB_HOST: db
+      DB_USER: flaskapp
+      DB_PASS: flaskapp
+      DB_NAME: exampleDb
+      APP_PORT: 5000
+    ports:
+      - "5000:5000"
+    networks:
+      - backend_network
+      - frontend_network
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    image: nginx:latest
+    container_name: docker-compose-nginx-1
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    networks:
+      - frontend_network
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
