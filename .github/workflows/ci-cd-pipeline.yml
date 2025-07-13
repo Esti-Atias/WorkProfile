@@ -83,7 +83,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }} # <--- MAKE SURE THIS IS THE ONLY CONTENT ON THIS LINE AFTER THE COLON
+            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }} 
             ${{ steps.set_image_name.outputs.full_image_name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
