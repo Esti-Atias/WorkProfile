@@ -84,7 +84,7 @@ jobs:
             echo "CRITICAL ERROR: new_tag is unexpectedly empty after all calculations! This should not happen."
             exit 1
           fi
-
+          
           echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
           echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV
 
@@ -140,7 +140,19 @@ jobs:
                 throw error;
               }
             }
-  
+      
+      - name: Verify build_and_validate outputs
+        run: |
+          echo "Verification Step in build_and_validate:"
+          echo "new_tag output: ${{ steps.increment_version.outputs.new_tag }}"
+          echo "full_image_name output: ${{ steps.set_image_name.outputs.full_image_name }}"
+          echo "VERSION_TAG env: ${{ env.VERSION_TAG }}"
+          
+          if [ -z "${{ steps.increment_version.outputs.new_tag }}" ]; then
+            echo "CRITICAL VERIFICATION ERROR: new_tag output is empty in build_and_validate!"
+            exit 1
+          fi
+
   single_container_tests:
     runs-on: ubuntu-latest
     needs: build_and_validate
@@ -257,7 +269,7 @@ jobs:
           echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" && echo "✓ Database connectivity works" || { echo "ERROR: Database connectivity failed!"; exit 1; }
       
       - name: Gather Container Logs on Failure
-        if: failure()
+        if: always()
         working-directory: ./docker-compose
         run: |
           echo "Gathering logs for debugging..."
