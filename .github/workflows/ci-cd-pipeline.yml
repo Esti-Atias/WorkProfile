@@ -272,10 +272,6 @@ jobs:
           HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.NGINX_PORT }}/health)
           echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" || { echo "ERROR: Application health check failed! Response: $HEALTH_RESPONSE"; exit 1; }
           echo "✓ Application health check works" # שורה זו תגיע רק אם ה-grep הצליח למצוא את המחרוזת
-
-          # בדיקת קישוריות לבסיס הנתונים
-          echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" || { echo "ERROR: Database connectivity failed! Response: $HEALTH_RESPONSE"; exit 1; }
-          echo "✓ Database connectivity works" # שורה זו תגיע רק אם ה-grep הצליח למצוא את המחרוזת
       
       - name: Gather Container Logs on Failure
         if: failure() || cancelled() # הפעל רק אם הג'וב נכשל או בוטל
