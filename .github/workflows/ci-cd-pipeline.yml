@@ -9,9 +9,9 @@ on:
       - main
 
 permissions:
-  contents: write # נדרש לגישה לקוד וליצירת תגיות
-  packages: write # נדרש לדחיפה וקריאה מ-GHCR
-  id-token: write # ליתר ביטחון, עבור אימות מתקדם
+  contents: write
+  packages: write
+  id-token: write
 
 env:
   APP_PORT: 5000
@@ -21,11 +21,11 @@ jobs:
   build_and_validate:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # הרשאות ספציפיות לג'וב זה - חשוב מאוד!
+      contents: write
       packages: write
-    outputs: # <--- ודאי שבלוק ה-outputs הזה קיים בדיוק כאן
+    outputs:
       full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
-      new_tag: ${{ steps.increment_version.outputs.new_tag }} # <--- ודאי ששורה זו קיימת!
+      new_tag: ${{ steps.increment_version.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -61,8 +61,9 @@ jobs:
         id: increment_version
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git fetch --tags --force
-          latest_tag=$(git tag -l "v*" | sort -V | tail -n 1)
+          git fetch --tags --force --prune
+          
+          latest_tag=$(git tag -l "v*" | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
           
           if [ -z "$latest_tag" ]; then
             new_tag="1.0.0"
@@ -70,17 +71,22 @@ jobs:
             version_only=$(echo "$latest_tag" | sed 's/^v//')
             IFS='.' read -r major minor patch <<< "$version_only"
             
-            patch=$((patch + 1))
-            new_tag="${major}.${minor}.${patch}"
+            if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]]; then
+              echo "ERROR: Invalid version format detected in latest tag: $latest_tag"
+              new_tag="1.0.0"
+            else
+              patch=$((patch + 1))
+              new_tag="${major}.${minor}.${patch}"
+            fi
           fi
-          
-          echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
-          echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV
           
           if [ -z "$new_tag" ]; then
-            echo "ERROR: new_tag is still empty after calculation!"
+            echo "CRITICAL ERROR: new_tag is unexpectedly empty after all calculations! This should not happen."
             exit 1
           fi
+
+          echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
+          echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -182,9 +188,9 @@ jobs:
 
   three_tier_tests:
     runs-on: ubuntu-latest
-    needs: single_container_tests # <--- ודאי שזה קיים ובהזחה נכונה
-    env: # <--- ודאי שבלוק ה-env הזה קיים בדיוק כאן
-      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }} # <--- ודאי ששורה זו קיימת!
+    needs: single_container_tests
+    env:
+      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -196,7 +202,7 @@ jobs:
           REPO_NAME_LOWERCASE=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
           echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
-      
+
       - name: Inject dynamic image tag into docker-compose.yml
         run: |
           VERSION_TAG_RAW="${{ env.BUILD_VALIDATE_NEW_TAG }}"
