@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
-      new_tag: ${{ steps.increment_version.outputs.new_tag }} # new_tag will be just the number (e.g., 1.1.6)
+      new_tag: ${{ steps.increment_version.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -63,9 +63,9 @@ jobs:
             patch=$((patch + 1))
             new_tag="${major}.${minor}.${patch}"
           fi
-          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT # This output will be just the number (e.g., 1.1.6)
-          echo "VERSION_TAG=$new_tag" >> $GITHUB_ENV # This env var will also be just the number (e.g., 1.1.6)
-          echo "Calculated new_tag: ${{ env.VERSION_TAG }}" # Added logging (will show 1.1.6)
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+          echo "VERSION_TAG=$new_tag" >> $GITHUB_ENV
+          echo "Calculated new_tag: ${{ env.VERSION_TAG }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -83,14 +83,13 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }} # Correct tag format
+            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }} # <--- MAKE SURE THIS IS THE ONLY CONTENT ON THIS LINE AFTER THE COLON
             ${{ steps.set_image_name.outputs.full_image_name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Verify image exists in GHCR after push
         run: |
-          # Check for the tag with 'v' prefix
           IMAGE_NAME_TO_CHECK="${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}"
           echo "Verifying that image ${IMAGE_NAME_TO_CHECK} exists in GHCR..."
           docker manifest inspect "${IMAGE_NAME_TO_CHECK}" > /dev/null 2>&1
@@ -110,7 +109,7 @@ jobs:
               await github.rest.git.createRef({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                ref: 'refs/tags/v${{ env.VERSION_TAG }}', # Add 'v' here to create tag like v1.1.6
+                ref: 'refs/tags/v${{ env.VERSION_TAG }}',
                 sha: context.sha
               });
               console.log('Successfully created Git tag: v${{ env.VERSION_TAG }}');
@@ -132,11 +131,9 @@ jobs:
       - name: Load Docker Image from GHCR for testing
         run: |
           IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
-          # Construct the tag with 'v' prefix from the new_tag output
           VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
           
           echo "Attempting to pull image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
-          # Explicitly try to pull the image. If it fails, try 'latest'
           docker pull "${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}" || \
           (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
           { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
@@ -145,7 +142,6 @@ jobs:
 
       - name: Run Single Container Tests
         run: |
-          # Use IMAGE_FULL_NAME and VERSION_TAG_WITH_V defined in the previous step
           IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
           VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
 
@@ -188,13 +184,6 @@ jobs:
       - name: Run 3-Tier Stack Tests
         working-directory: ./docker-compose
         run: |
-          # It's important that your docker-compose.yml references the image with the correct 'v' prefix.
-          # If your docker-compose.yml uses a fixed image name, update it to use the new_tag output,
-          # or ensure it pulls the 'latest' tag.
-          # For example, in your docker-compose.yml, the 'image' field for your app service should look like:
-          # image: ghcr.io/esti-atias/workprofile:v${VERSION_TAG} or ghcr.io/esti-atias/workprofile:latest
-          # And you'd need to pass VERSION_TAG as an environment variable or build arg to compose,
-          # or simply rely on 'latest' if you're pushing it consistently.
           docker compose up -d --build
 
           sleep 90
