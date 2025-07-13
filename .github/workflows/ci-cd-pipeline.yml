@@ -301,10 +301,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: three_tier_tests
     if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: All previous steps completed, image already published.
-        run: echo "Image was already built and pushed in the 'build_and_validate' job."
     steps:
       - name: All previous steps completed, image already published.
         run: echo "Image was already built and pushed in the 'build_and_validate' job."
