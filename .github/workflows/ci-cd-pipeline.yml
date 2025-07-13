@@ -9,9 +9,9 @@ on:
       - main
 
 permissions:
-  contents: write # ודאי שזה write כאן
-  packages: write # ודאי שזה write כאן
-  id-token: write # הוספה ליתר ביטחון, למקרים מורכבים יותר
+  contents: write # נדרש לגישה לקוד וליצירת תגיות
+  packages: write # נדרש לדחיפה וקריאה מ-GHCR
+  id-token: write # ליתר ביטחון, עבור אימות מתקדם
 
 env:
   APP_PORT: 5000
@@ -20,12 +20,12 @@ env:
 jobs:
   build_and_validate:
     runs-on: ubuntu-latest
-    permissions: # <--- ודאי שבלוק זה קיים כאן עם ההזחה הנכונה
-      contents: write # חובה ליצירת תגית וצ'קאאוט קוד
-      packages: write # חובה לדחיפת אימג'ים
-    outputs:
+    permissions:
+      contents: write # הרשאות ספציפיות לג'וב זה - חשוב מאוד!
+      packages: write
+    outputs: # <--- ודאי שבלוק ה-outputs הזה קיים בדיוק כאן
       full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
-      new_tag: ${{ steps.increment_version.outputs.new_tag }}
+      new_tag: ${{ steps.increment_version.outputs.new_tag }} # <--- ודאי ששורה זו קיימת!
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -63,20 +63,20 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch --tags --force
           latest_tag=$(git tag -l "v*" | sort -V | tail -n 1)
-
+          
           if [ -z "$latest_tag" ]; then
             new_tag="1.0.0"
           else
             version_only=$(echo "$latest_tag" | sed 's/^v//')
             IFS='.' read -r major minor patch <<< "$version_only"
-
+            
             patch=$((patch + 1))
             new_tag="${major}.${minor}.${patch}"
           fi
-
+          
           echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
           echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV
-
+          
           if [ -z "$new_tag" ]; then
             echo "ERROR: new_tag is still empty after calculation!"
             exit 1
@@ -134,7 +134,7 @@ jobs:
                 throw error;
               }
             }
-
+  
   single_container_tests:
     runs-on: ubuntu-latest
     needs: build_and_validate
@@ -146,7 +146,7 @@ jobs:
         run: |
           IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
           VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
-
+          
           echo "Attempting to pull image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
           docker pull "${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}" || \
           (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
@@ -174,7 +174,7 @@ jobs:
 
           curl -f http://localhost:${{ env.APP_PORT }}/ && echo "✓ Main endpoint works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
           curl -f http://localhost:${{ env.APP_PORT }}/health && echo "✓ Health endpoint works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
-
+      
       - name: Cleanup Single Container
         if: always()
         run: |
@@ -182,9 +182,9 @@ jobs:
 
   three_tier_tests:
     runs-on: ubuntu-latest
-    needs: single_container_tests
-    env:
-      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }}
+    needs: single_container_tests # <--- ודאי שזה קיים ובהזחה נכונה
+    env: # <--- ודאי שבלוק ה-env הזה קיים בדיוק כאן
+      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }} # <--- ודאי ששורה זו קיימת!
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -196,11 +196,11 @@ jobs:
           REPO_NAME_LOWERCASE=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
           FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
           echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
-
+      
       - name: Inject dynamic image tag into docker-compose.yml
         run: |
           VERSION_TAG_RAW="${{ env.BUILD_VALIDATE_NEW_TAG }}"
-
+          
           if [ -z "$VERSION_TAG_RAW" ]; then
             echo "ERROR: BUILD_VALIDATE_NEW_TAG is empty! Cannot create image tag. Check build_and_validate outputs."
             exit 1
@@ -222,12 +222,12 @@ jobs:
         run: |
           IMAGE_TAG_USED=$(grep "image:" docker-compose/docker-compose.yml | grep -E "ghcr.io" | awk '{print $2}')
           echo "Image tag that Docker Compose will attempt to use: $IMAGE_TAG_USED"
-
+          
           if [[ -z "$IMAGE_TAG_USED" || "$IMAGE_TAG_USED" == *"YOUR_APP_IMAGE_PLACEHOLDER"* || "$IMAGE_TAG_USED" == *"ghcr.io/esti-atias/workprofile:v"* ]]; then
             echo "ERROR: Image tag placeholder was NOT replaced correctly or tag is incomplete!"
             exit 1
           fi
-
+          
           echo "Attempting to pull the image directly for verification..."
           docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
           echo "Direct pull of $IMAGE_TAG_USED succeeded."
@@ -249,7 +249,7 @@ jobs:
           HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.NGINX_PORT }}/health)
           echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" && echo "✓ Application health check works" || { echo "ERROR: Application health check failed!"; exit 1; }
           echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" && echo "✓ Database connectivity works" || { echo "ERROR: Database connectivity failed!"; exit 1; }
-
+      
       - name: Gather Container Logs on Failure
         if: failure()
         working-directory: ./docker-compose
