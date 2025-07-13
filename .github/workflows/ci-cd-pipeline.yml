@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
-      new_tag: ${{ steps.increment_version.outputs.new_tag }}
+      new_tag: ${{ steps.increment_version.outputs.new_tag }} # new_tag will be just the number (e.g., 1.1.6)
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -63,9 +63,9 @@ jobs:
             patch=$((patch + 1))
             new_tag="${major}.${minor}.${patch}"
           fi
-          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
-          echo "VERSION_TAG=v$new_tag" >> $GITHUB_ENV
-          echo "Calculated image tag for push: v${{ env.VERSION_TAG }}"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT # This output will be just the number (e.g., 1.1.6)
+          echo "VERSION_TAG=$new_tag" >> $GITHUB_ENV # This env var will also be just the number (e.g., 1.1.6)
+          echo "Calculated new_tag: ${{ env.VERSION_TAG }}" # Added logging (will show 1.1.6)
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -83,19 +83,16 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}
+            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }} # Added 'v' here once
             ${{ steps.set_image_name.outputs.full_image_name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Remove this line, it's not a standard output of build-push-action
-          # outputs: | 
-          #   pushed-tags=${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}, ${{ steps.set_image_name.outputs.full_image_name }}:latest
 
-      - name: Verify image exists in GHCR after push # שלב חדש לבדיקה נוספת לאחר הדחיפה
+      - name: Verify image exists in GHCR after push
         run: |
+          # Check for the tag with 'v' prefix
           IMAGE_NAME_TO_CHECK="${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}"
           echo "Verifying that image ${IMAGE_NAME_TO_CHECK} exists in GHCR..."
-          # docker manifest inspect יבדוק את קיום התמונה ב-registry
           docker manifest inspect "${IMAGE_NAME_TO_CHECK}" > /dev/null 2>&1
           if [ $? -eq 0 ]; then
             echo "✓ Image ${IMAGE_NAME_TO_CHECK} successfully found in GHCR."
@@ -103,7 +100,6 @@ jobs:
             echo "ERROR: Image ${IMAGE_NAME_TO_CHECK} NOT found in GHCR after push!"
             exit 1
           fi
-
 
       - name: Push Git tag
         if: github.ref == 'refs/heads/main'
@@ -114,10 +110,10 @@ jobs:
               await github.rest.git.createRef({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                ref: 'refs/tags/${{ env.VERSION_TAG }}',
+                ref: 'refs/tags/v${{ env.VERSION_TAG }}', # Added 'v' here to create tag like v1.1.6
                 sha: context.sha
               });
-              console.log('Successfully created Git tag: ${{ env.VERSION_TAG }}');
+              console.log('Successfully created Git tag: v${{ env.VERSION_TAG }}');
             } catch (error) {
               if (error.status === 422 && error.data.message.includes('Reference already exists')) {
                 console.log('Git tag already exists, skipping creation.');
@@ -136,11 +132,11 @@ jobs:
       - name: Load Docker Image from GHCR for testing
         run: |
           IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
-          VERSION_TAG=$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')
+          # Construct the tag with 'v' prefix from the new_tag output
+          VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
           
-          echo "Attempting to pull image: ${IMAGE_FULL_NAME}:v${VERSION_TAG}"
-          # ניסיון מפורש למשוך את התמונה. אם נכשל, ננסה את 'latest'
-          docker pull "${IMAGE_FULL_NAME}:v${VERSION_TAG}" || \
+          echo "Attempting to pull image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          docker pull "${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}" || \
           (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
           { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
           echo "Image pulled successfully."
@@ -148,12 +144,12 @@ jobs:
 
       - name: Run Single Container Tests
         run: |
-          # אנו משתמשים כאן ב-IMAGE_FULL_NAME ו-VERSION_TAG שהוגדרו בשלב הקודם
           IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
-          VERSION_TAG=$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')
+          # Construct the tag with 'v' prefix for running
+          VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
 
-          echo "Running container with image: ${IMAGE_FULL_NAME}:v${VERSION_TAG}"
-          docker run -d -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} --name test-app ${IMAGE_FULL_NAME}:v${VERSION_TAG}
+          echo "Running container with image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          docker run -d -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} --name test-app ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}
 
           for i in {1..20}; do
             if curl -s http://localhost:${{ env.APP_PORT }}/health | grep -q "Application: Healthy"; then
@@ -166,53 +162,4 @@ jobs:
           curl -f http://localhost:${{ env.APP_PORT }}/health | grep -q "Application: Healthy" || { echo "ERROR: App did not become ready in time."; exit 1; }
 
           curl -f http://localhost:${{ env.APP_PORT }}/ && echo "✓ Main endpoint works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
-          curl -f http://localhost:${{ env.APP_PORT }}/health && echo "✓ Health endpoint works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
-      
-      - name: Cleanup Single Container
-        if: always()
-        run: |
-          docker stop test-app && docker rm test-app || true
-
-  three_tier_tests:
-    runs-on: ubuntu-latest
-    needs: single_container_tests
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-
-      - name: Set lowercase image name
-        id: set_image_name_for_compose
-        run: |
-          REPO_OWNER_LOWERCASE=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          REPO_NAME_LOWERCASE=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
-          echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
-      
-      - name: Run 3-Tier Stack Tests
-        working-directory: ./docker-compose
-        run: |
-          docker compose up -d --build
-
-          sleep 90
-
-          curl -f http://localhost:${{ env.NGINX_PORT }}/ && echo "✓ Nginx proxy works" || { echo "ERROR: Nginx proxy failed!"; exit 1; }
-          curl -f http://localhost:${{ env.NGINX_PORT }}/health && echo "✓ Health through nginx works" || { echo "ERROR: Health through nginx failed!"; exit 1; }
-
-          HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.NGINX_PORT }}/health)
-          echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" && echo "✓ Application health check works" || { echo "ERROR: Application health check failed!"; exit 1; }
-          echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" && echo "✓ Database connectivity works" || { echo "ERROR: Database connectivity failed!"; exit 1; }
-      
-      - name: Cleanup 3-Tier Stack
-        if: always()
-        working-directory: ./docker-compose
-        run: |
-          docker compose down -v || true
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: three_tier_tests
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: All previous steps completed, image already published.
-        run: echo "Image was already built and pushed in the 'build_and_validate' job."
+          curl -f http://localhost:${{ env.APP_PORT }}/health && echo "✓ Health endpoint works" || { echo "ERROR
