@@ -65,27 +65,45 @@ jobs:
           fi
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
           echo "VERSION_TAG=v$new_tag" >> $GITHUB_ENV
+          echo "Calculated image tag for push: v${{ env.VERSION_TAG }}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GitHub Container Registry (GHCR) # חדש כאן!
+      - name: Login to GitHub Container Registry (GHCR)
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image to GHCR (Early Publish) # שונה ל-push כאן!
+      - name: Build and push Docker image to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true # זה אומר לדחוף את התמונה ל-GHCR
+          push: true
           tags: |
             ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}
             ${{ steps.set_image_name.outputs.full_image_name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Remove this line, it's not a standard output of build-push-action
+          # outputs: | 
+          #   pushed-tags=${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}, ${{ steps.set_image_name.outputs.full_image_name }}:latest
+
+      - name: Verify image exists in GHCR after push # שלב חדש לבדיקה נוספת לאחר הדחיפה
+        run: |
+          IMAGE_NAME_TO_CHECK="${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}"
+          echo "Verifying that image ${IMAGE_NAME_TO_CHECK} exists in GHCR..."
+          # docker manifest inspect יבדוק את קיום התמונה ב-registry
+          docker manifest inspect "${IMAGE_NAME_TO_CHECK}" > /dev/null 2>&1
+          if [ $? -eq 0 ]; then
+            echo "✓ Image ${IMAGE_NAME_TO_CHECK} successfully found in GHCR."
+          else
+            echo "ERROR: Image ${IMAGE_NAME_TO_CHECK} NOT found in GHCR after push!"
+            exit 1
+          fi
+
 
       - name: Push Git tag
         if: github.ref == 'refs/heads/main'
@@ -115,14 +133,26 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      # אין צורך יותר ב-Load Docker Image from build_and_validate - התמונה כבר ב-GHCR
-      # השלב הזה יוסר, או שניתן פשוט להשתמש ב-docker run ישירות מה-GHCR
-
-      - name: Run Single Container Tests
+      - name: Load Docker Image from GHCR for testing
         run: |
           IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
           VERSION_TAG=$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')
+          
+          echo "Attempting to pull image: ${IMAGE_FULL_NAME}:v${VERSION_TAG}"
+          # ניסיון מפורש למשוך את התמונה. אם נכשל, ננסה את 'latest'
+          docker pull "${IMAGE_FULL_NAME}:v${VERSION_TAG}" || \
+          (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
+          { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
+          echo "Image pulled successfully."
 
+
+      - name: Run Single Container Tests
+        run: |
+          # אנו משתמשים כאן ב-IMAGE_FULL_NAME ו-VERSION_TAG שהוגדרו בשלב הקודם
+          IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
+          VERSION_TAG=$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')
+
+          echo "Running container with image: ${IMAGE_FULL_NAME}:v${VERSION_TAG}"
           docker run -d -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} --name test-app ${IMAGE_FULL_NAME}:v${VERSION_TAG}
 
           for i in {1..20}; do
@@ -161,7 +191,6 @@ jobs:
       - name: Run 3-Tier Stack Tests
         working-directory: ./docker-compose
         run: |
-          # כאן נשתמש ב-docker compose שימשוך את התמונה מה-GHCR
           docker compose up -d --build
 
           sleep 90
@@ -179,7 +208,7 @@ jobs:
         run: |
           docker compose down -v || true
 
-  publish: # הג'וב הזה כעת יכול להיות אופציונלי או לשנות את מטרתו
+  publish:
     runs-on: ubuntu-latest
     needs: three_tier_tests
     if: github.ref == 'refs/heads/main'
@@ -187,5 +216,3 @@ jobs:
     steps:
       - name: All previous steps completed, image already published.
         run: echo "Image was already built and pushed in the 'build_and_validate' job."
-      # ניתן להסיר את כל השלבים של ה-login וה-build/push מכאן
-      # אם את רוצה שה-publish יעשה משהו נוסף, כמו עדכון Kubernetes או הודעה, זה המקום.
