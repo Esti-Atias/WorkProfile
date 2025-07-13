@@ -52,20 +52,27 @@ jobs:
       - name: Get the latest tag from the repository and increment patch version
         id: increment_version
         run: |
-          git fetch --tags
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --tags --force
           latest_tag=$(git tag -l "v*" | sort -V | tail -n 1)
+          
           if [ -z "$latest_tag" ]; then
             new_tag="1.0.0"
           else
-            major=$(echo $latest_tag | cut -d '.' -f 1 | sed 's/v//')
-            minor=$(echo $latest_tag | cut -d '.' -f 2)
-            patch=$(echo $latest_tag | cut -d '.' -f 3)
+            version_only=$(echo "$latest_tag" | sed 's/^v//')
+            IFS='.' read -r major minor patch <<< "$version_only"
+            
             patch=$((patch + 1))
             new_tag="${major}.${minor}.${patch}"
           fi
-          echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT 
-          echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV 
-          echo "Calculated new_tag: ${new_tag}" 
+          
+          echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
+          echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV
+          
+          if [ -z "$new_tag" ]; then
+            echo "ERROR: new_tag is still empty after calculation!"
+            exit 1
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -91,7 +98,6 @@ jobs:
       - name: Verify image exists in GHCR after push
         run: |
           IMAGE_NAME_TO_CHECK="${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}"
-          echo "Verifying that image ${IMAGE_NAME_TO_CHECK} exists in GHCR..."
           docker manifest inspect "${IMAGE_NAME_TO_CHECK}" > /dev/null 2>&1
           if [ $? -eq 0 ]; then
             echo "✓ Image ${IMAGE_NAME_TO_CHECK} successfully found in GHCR."
@@ -169,6 +175,8 @@ jobs:
   three_tier_tests:
     runs-on: ubuntu-latest
     needs: single_container_tests
+    env:
+      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -183,10 +191,38 @@ jobs:
       
       - name: Inject dynamic image tag into docker-compose.yml
         run: |
-          VERSION_TAG_FOR_COMPOSE="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
+          VERSION_TAG_RAW="${{ env.BUILD_VALIDATE_NEW_TAG }}"
+          
+          if [ -z "$VERSION_TAG_RAW" ]; then
+            echo "ERROR: BUILD_VALIDATE_NEW_TAG is empty! Cannot create image tag. Check build_and_validate outputs."
+            exit 1
+          fi
+
+          VERSION_TAG_FOR_COMPOSE="v$(echo "$VERSION_TAG_RAW" | tr -d '\n')"
           ACTUAL_FULL_IMAGE_TAG="${{ steps.set_image_name_for_compose.outputs.full_image_name }}:${VERSION_TAG_FOR_COMPOSE}"
           echo "Attempting to replace YOUR_APP_IMAGE_PLACEHOLDER with: ${ACTUAL_FULL_IMAGE_TAG}"
           sed -i "s|YOUR_APP_IMAGE_PLACEHOLDER|${ACTUAL_FULL_IMAGE_TAG}|g" docker-compose/docker-compose.yml
+
+      - name: Verify docker-compose.yml content after injection
+        run: |
+          echo "Content of docker-compose.yml after tag injection:"
+          cat docker-compose/docker-compose.yml
+          echo ""
+          grep "image:" docker-compose/docker-compose.yml
+
+      - name: Verify Docker Compose image tag and attempt direct pull
+        run: |
+          IMAGE_TAG_USED=$(grep "image:" docker-compose/docker-compose.yml | grep -E "ghcr.io" | awk '{print $2}')
+          echo "Image tag that Docker Compose will attempt to use: $IMAGE_TAG_USED"
+          
+          if [[ -z "$IMAGE_TAG_USED" || "$IMAGE_TAG_USED" == *"YOUR_APP_IMAGE_PLACEHOLDER"* || "$IMAGE_TAG_USED" == *"ghcr.io/esti-atias/workprofile:v"* ]]; then
+            echo "ERROR: Image tag placeholder was NOT replaced correctly or tag is incomplete!"
+            exit 1
+          fi
+          
+          echo "Attempting to pull the image directly for verification..."
+          docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
+          echo "Direct pull of $IMAGE_TAG_USED succeeded."
 
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
