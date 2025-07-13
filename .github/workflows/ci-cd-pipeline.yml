@@ -126,6 +126,8 @@ jobs:
 
           curl -f http://localhost:${{ env.APP_PORT }}/ && echo "✓ Main endpoint works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
           curl -f http://localhost:${{ env.APP_PORT }}/health && echo "✓ Health endpoint works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
+      
+      - name: Cleanup Single Container
         if: always()
         run: |
           docker stop test-app && docker rm test-app || true
@@ -158,6 +160,8 @@ jobs:
           HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.NGINX_PORT }}/health)
           echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" && echo "✓ Application health check works" || { echo "ERROR: Application health check failed!"; exit 1; }
           echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" && echo "✓ Database connectivity works" || { echo "ERROR: Database connectivity failed!"; exit 1; }
+      
+      - name: Cleanup 3-Tier Stack
         if: always()
         working-directory: ./docker-compose
         run: |
@@ -215,7 +219,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Set up Kubeconfig (Placeholder)
+      - name: Set up Kubeconfig
         run: |
           echo "Kubernetes setup placeholder. Real Kubeconfig/context needed here."
 
@@ -241,8 +245,11 @@ jobs:
           curl -f http://localhost:5000/ && echo "✓ Kubernetes app works" || { echo "ERROR: Kubernetes app failed!"; exit 1; }
           curl -f http://localhost:5000/health && echo "✓ Kubernetes health works" || { echo "ERROR: Kubernetes health failed!"; exit 1; }
           curl -s http://localhost:5000/health | grep -q "Database: Healthy" && echo "✓ Kubernetes database works" || { echo "ERROR: Kubernetes database connectivity failed!"; exit 1; }
+      
+      - name: Cleanup Kubernetes Resources
         if: always()
         run: |
+          kill $FORWARD_PID || true
           kubectl delete -f k8s/workprofile-service.yaml || true
           kubectl delete -f k8s/workprofile-deployment.yaml || true
           kubectl delete -f k8s/workprofile-configmap.yaml || true
