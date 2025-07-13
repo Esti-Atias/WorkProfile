@@ -200,7 +200,9 @@ jobs:
 
   three_tier_tests:
     runs-on: ubuntu-latest
-    needs: single_container_tests
+    needs: 
+      - single_container_tests
+      - build_and_validate
     env:
       BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }}
     steps:
