@@ -20,6 +20,14 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9' 
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
       - name: Run Basic Validation Tests
         run: |
           python -c "import flask; print('✓ Flask import successful')" || { echo "ERROR: Flask import failed!"; exit 1; }
