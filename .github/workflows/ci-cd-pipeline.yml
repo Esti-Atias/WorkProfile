@@ -282,7 +282,6 @@ three_tier_tests:
         working-directory: ./docker-compose
         run: |
           docker compose down -v || true
-
   publish:
     runs-on: ubuntu-latest
     needs: three_tier_tests
