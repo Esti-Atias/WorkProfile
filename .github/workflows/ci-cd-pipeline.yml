@@ -233,11 +233,7 @@ jobs:
 
       - name: Verify Docker Compose image tag and attempt direct pull
         run: |
-          # Verify that the placeholder was replaced.
-          # We don't use grep -E "ghcr.io" directly here because it's already guaranteed
-          # by the way ACTUAL_FULL_IMAGE_TAG is constructed above.
-          # We just need to check if the replacement happened.
-          IMAGE_TAG_USED=$(grep "image:" docker-compose/docker-compose.yml | awk '{print $2}' | head -n 1) # Grab the first image tag
+          IMAGE_TAG_USED=$(grep "image:" docker-compose/docker-compose.yml | awk '{print $2}' | head -n 1)
 
           if [[ -z "$IMAGE_TAG_USED" || "$IMAGE_TAG_USED" == *"YOUR_APP_IMAGE_PLACEHOLDER"* ]]; then
             echo "ERROR: Image tag placeholder was NOT replaced correctly or tag is incomplete!"
@@ -248,6 +244,20 @@ jobs:
           echo "Attempting to pull the image directly for verification..."
           docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
           echo "Direct pull of $IMAGE_TAG_USED succeeded."
+
+      - name: Debug Dockerfile path
+        working-directory: ./docker-compose
+        run: |
+          echo "Current working directory within docker-compose step:"
+          pwd
+          echo "Contents of the current directory (docker-compose/):"
+          ls -F
+          echo "Contents of the parent directory (repository root):"
+          ls -F ..
+          echo "Checking if Dockerfile exists in parent directory from here:"
+          test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in parent directory!"
+          echo "Checking if Dockerfile exists in current directory from here (not expected):"
+          test -f Dockerfile && echo "✓ Dockerfile found in current directory (unexpected)" || echo "✗ Dockerfile NOT found in current directory!"
 
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
