@@ -261,23 +261,35 @@ jobs:
       - name: Check Nginx and App Health
         working-directory: ./docker-compose
         run: |
-          sleep 10
+          echo "Waiting for services to be fully ready..."
+          sleep 20 # הגדלנו את זמן ההמתנה מ-10 ל-20 שניות. זה קריטי לאתחול בסיס הנתונים.
 
-          curl -f http://localhost:${{ env.NGINX_PORT }}/ && echo "✓ Nginx proxy works" || { echo "ERROR: Nginx proxy failed!"; exit 1; }
-          curl -f http://localhost:${{ env.NGINX_PORT }}/health && echo "✓ Health through nginx works" || { echo "ERROR: Health through nginx failed!"; exit 1; }
+          echo "Checking Nginx health..."
+          curl -f http://localhost:${{ env.NGINX_PORT }}/ && echo "✓ Nginx proxy works" || { echo "ERROR: Nginx proxy failed! See logs below."; exit 1; }
+          curl -f http://localhost:${{ env.NGINX_PORT }}/health && echo "✓ Health through nginx works" || { echo "ERROR: Health through nginx failed! See logs below."; exit 1; }
 
+          # בדיקת תקינות האפליקציה
           HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.NGINX_PORT }}/health)
-          echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" && echo "✓ Application health check works" || { echo "ERROR: Application health check failed!"; exit 1; }
-          echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" && echo "✓ Database connectivity works" || { echo "ERROR: Database connectivity failed!"; exit 1; }
+          echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" || { echo "ERROR: Application health check failed! Response: $HEALTH_RESPONSE"; exit 1; }
+          echo "✓ Application health check works" # שורה זו תגיע רק אם ה-grep הצליח למצוא את המחרוזת
+
+          # בדיקת קישוריות לבסיס הנתונים
+          echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" || { echo "ERROR: Database connectivity failed! Response: $HEALTH_RESPONSE"; exit 1; }
+          echo "✓ Database connectivity works" # שורה זו תגיע רק אם ה-grep הצליח למצוא את המחרוזת
       
       - name: Gather Container Logs on Failure
-        if: always()
+        if: failure() || cancelled() # הפעל רק אם הג'וב נכשל או בוטל
         working-directory: ./docker-compose
         run: |
-          echo "Gathering logs for debugging..."
+          echo "Gathering logs for debugging due to test failure..."
+          echo "--- app container logs ---"
           docker compose logs app
+          echo "--- db container logs ---"
           docker compose logs db
+          echo "--- docker compose ps -a ---"
           docker compose ps -a
+          echo "--- docker compose config (for network verification) ---"
+          docker compose config # מציג את תצורת הקומפוז הסופית, כולל רשתות
 
       - name: Cleanup 3-Tier Stack
         if: always()
@@ -290,6 +302,9 @@ jobs:
     needs: three_tier_tests
     if: github.ref == 'refs/heads/main'
 
+    steps:
+      - name: All previous steps completed, image already published.
+        run: echo "Image was already built and pushed in the 'build_and_validate' job."
     steps:
       - name: All previous steps completed, image already published.
         run: echo "Image was already built and pushed in the 'build_and_validate' job."
