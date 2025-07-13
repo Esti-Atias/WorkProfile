@@ -63,9 +63,9 @@ jobs:
             patch=$((patch + 1))
             new_tag="${major}.${minor}.${patch}"
           fi
-          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
-          echo "VERSION_TAG=$new_tag" >> $GITHUB_ENV
-          echo "Calculated new_tag: ${{ env.VERSION_TAG }}"
+          echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT 
+          echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV 
+          echo "Calculated new_tag: ${new_tag}" 
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
