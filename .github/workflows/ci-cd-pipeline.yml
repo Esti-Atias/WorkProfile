@@ -168,7 +168,7 @@ jobs:
 
   three_tier_tests:
     runs-on: ubuntu-latest
-    needs: build_and_validate
+    needs: single_container_tests
     steps:
       - name: Check out code
         uses: actions/checkout@v4
