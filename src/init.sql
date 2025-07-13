@@ -12,21 +12,21 @@ USE exampleDb;
 
 CREATE TABLE IF NOT EXISTS `people` (
 
-  `id` int(11) NOT NULL AUTO_INCREMENT,
+`id` int(11) NOT NULL AUTO_INCREMENT,
 
-  `firstname` varchar(100) NOT NULL,
+`firstname` varchar(100) NOT NULL,
 
-  `lastname` varchar(100) NOT NULL,
+`lastname` varchar(100) NOT NULL,
 
-  `age` int(11) NOT NULL,
+`age` int(11) NOT NULL,
 
-  `address` varchar(100) NOT NULL,
+`address` varchar(100) NOT NULL,
 
-  `workplace` varchar(100) NOT NULL,
+`workplace` varchar(100) NOT NULL,
 
-  PRIMARY KEY (`id`),
+PRIMARY KEY (`id`),
 
-  UNIQUE KEY `id` (`id`)
+UNIQUE KEY `id` (`id`)
 
 ) ENGINE=MyISAM AUTO_INCREMENT=10001;
 
