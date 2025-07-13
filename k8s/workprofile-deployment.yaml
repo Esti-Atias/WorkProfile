@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workprofile
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workprofile
+  template:
+    metadata:
+      labels:
+        app: workprofile
+    spec:
+      containers:
+        - name: workprofile
+          image: YOUR_APP_IMAGE_PLACEHOLDER # זה ה-placeholder שה-CI/CD יחליף!
+          ports:
+            - containerPort: 5000
+          env:
+            - name: APP_PORT
+              value: "5000"
+            - name: DB_HOST
+              value: "mysql-service" # שם ה-Service של MySQL בקוברנטס
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_DATABASE
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 5

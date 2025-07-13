@@ -1,18 +1,43 @@
-CREATE DATABASE IF NOT EXISTS `workprofile_db`;
+CREATE DATABASE IF NOT EXISTS `exampleDb`;
 
-USE workprofile_db;
+GRANT ALL PRIVILEGES ON `exampleDb` TO 'flaskapp'@'%' IDENTIFIED BY 'flaskapp' WITH GRANT OPTION;
 
-CREATE TABLE IF NOT EXISTS `Person` (
-    `id` INT(11) NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(100) NOT NULL,       
-    `email` VARCHAR(100) UNIQUE NOT NULL, 
-    `phone` VARCHAR(20) NOT NULL,       
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `id` (`id`)
+FLUSH PRIVILEGES;
+
+
+
+USE exampleDb;
+
+
+
+CREATE TABLE IF NOT EXISTS `people` (
+
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+
+  `firstname` varchar(100) NOT NULL,
+
+  `lastname` varchar(100) NOT NULL,
+
+  `age` int(11) NOT NULL,
+
+  `address` varchar(100) NOT NULL,
+
+  `workplace` varchar(100) NOT NULL,
+
+  PRIMARY KEY (`id`),
+
+  UNIQUE KEY `id` (`id`)
+
 ) ENGINE=MyISAM AUTO_INCREMENT=10001;
 
 
-INSERT INTO `Person` (`name`, `email`, `phone`) VALUES 
-('John Doe', 'john.doe@example.com', '111-222-3333'),
-('Jane Doe', 'jane.doe@example.com', '444-555-6666'),
-('Jack Doe', 'jack.doe@example.com', '777-888-9999');
+
+
+
+INSERT INTO `people` (`firstname`, `lastname`, `age`, `address`, `workplace`) VALUES
+
+('John', 'Doe', 30, '123 Main St, New York, NY 10030', 'Google'),
+
+('Jane', 'Doe', 28, '123 Main St, New York, NY 10030', 'Microsoft'),
+
+('Jack', 'Doe', 25, '123 Main St, New York, NY 10030', 'Amazon');
