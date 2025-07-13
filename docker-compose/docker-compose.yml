@@ -33,7 +33,7 @@ services:
   app:
     build:
       context: ..
-      dockerfile: ../Dockerfile
+      dockerfile: Dockerfile
     container_name: docker-compose-app-1
     restart: always
     environment:
