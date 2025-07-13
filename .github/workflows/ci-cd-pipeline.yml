@@ -15,7 +15,9 @@ env:
 jobs:
   build_and_validate:
     runs-on: ubuntu-latest
-
+    outputs: # זה החלק שנוסף/תוקן
+      full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
+      new_tag: ${{ steps.increment_version.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -23,7 +25,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9' 
+          python-version: '3.9'
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
@@ -36,7 +38,6 @@ jobs:
           test -f requirements.txt && echo "✓ requirements.txt exists" || { echo "ERROR: requirements.txt missing!"; exit 1; }
           test -f src/app.py && echo "✓ app.py exists" || { echo "ERROR: app.py missing!"; exit 1; }
           test -f docker-compose/docker-compose.yml && echo "✓ docker-compose/docker-compose.yml exists" || { echo "ERROR: docker-compose/docker-compose.yml missing!"; exit 1; }
-          # השינוי בשורה הזו:
           test -f docker-compose/nginx.conf && echo "✓ nginx.conf exists" || { echo "ERROR: nginx.conf missing!"; exit 1; }
           test -f src/init.sql && echo "✓ src/init.sql exists" || { echo "ERROR: src/init.sql missing!"; exit 1; }
 
@@ -111,6 +112,7 @@ jobs:
       
       - name: Load Docker Image from build_and_validate
         run: |
+          # כאן אנחנו משתמשים ב-outputs של הג'וב הקודם
           docker pull ${{ needs.build_and_validate.outputs.full_image_name }}:v${{ needs.build_and_validate.outputs.new_tag }} || \
           docker pull ${{ needs.build_and_validate.outputs.full_image_name }}:latest
           echo "Image pulled successfully."
