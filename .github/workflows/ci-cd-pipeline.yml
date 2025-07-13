@@ -36,7 +36,8 @@ jobs:
           test -f requirements.txt && echo "✓ requirements.txt exists" || { echo "ERROR: requirements.txt missing!"; exit 1; }
           test -f src/app.py && echo "✓ app.py exists" || { echo "ERROR: app.py missing!"; exit 1; }
           test -f docker-compose/docker-compose.yml && echo "✓ docker-compose/docker-compose.yml exists" || { echo "ERROR: docker-compose/docker-compose.yml missing!"; exit 1; }
-          test -f nginx.conf && echo "✓ nginx.conf exists" || { echo "ERROR: nginx.conf missing!"; exit 1; }
+          # השינוי בשורה הזו:
+          test -f docker-compose/nginx.conf && echo "✓ nginx.conf exists" || { echo "ERROR: nginx.conf missing!"; exit 1; }
           test -f src/init.sql && echo "✓ src/init.sql exists" || { echo "ERROR: src/init.sql missing!"; exit 1; }
 
       - name: Set lowercase image name
