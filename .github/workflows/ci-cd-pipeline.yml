@@ -83,7 +83,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }} 
+            ${{ steps.set_image_name.outputs.full_image_name }}:v${{ env.VERSION_TAG }}
             ${{ steps.set_image_name.outputs.full_image_name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -168,7 +168,7 @@ jobs:
 
   three_tier_tests:
     runs-on: ubuntu-latest
-    needs: single_container_tests
+    needs: build_and_validate
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -181,12 +181,23 @@ jobs:
           FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
           echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
       
-      - name: Run 3-Tier Stack Tests
+      - name: Inject dynamic image tag into docker-compose.yml
+        run: |
+          VERSION_TAG_FOR_COMPOSE="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
+          ACTUAL_FULL_IMAGE_TAG="${{ steps.set_image_name_for_compose.outputs.full_image_name }}:${VERSION_TAG_FOR_COMPOSE}"
+          echo "Attempting to replace YOUR_APP_IMAGE_PLACEHOLDER with: ${ACTUAL_FULL_IMAGE_TAG}"
+          sed -i "s|YOUR_APP_IMAGE_PLACEHOLDER|${ACTUAL_FULL_IMAGE_TAG}|g" docker-compose/docker-compose.yml
+
+      - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
         run: |
-          docker compose up -d --build
+          docker compose up -d --build --wait
+          echo "Docker Compose services are up and healthy."
 
-          sleep 90
+      - name: Check Nginx and App Health
+        working-directory: ./docker-compose
+        run: |
+          sleep 10
 
           curl -f http://localhost:${{ env.NGINX_PORT }}/ && echo "✓ Nginx proxy works" || { echo "ERROR: Nginx proxy failed!"; exit 1; }
           curl -f http://localhost:${{ env.NGINX_PORT }}/health && echo "✓ Health through nginx works" || { echo "ERROR: Health through nginx failed!"; exit 1; }
@@ -195,6 +206,15 @@ jobs:
           echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" && echo "✓ Application health check works" || { echo "ERROR: Application health check failed!"; exit 1; }
           echo "$HEALTH_RESPONSE" | grep -q "Database: Healthy" && echo "✓ Database connectivity works" || { echo "ERROR: Database connectivity failed!"; exit 1; }
       
+      - name: Gather Container Logs on Failure
+        if: failure()
+        working-directory: ./docker-compose
+        run: |
+          echo "Gathering logs for debugging..."
+          docker compose logs app
+          docker compose logs db
+          docker compose ps -a
+
       - name: Cleanup 3-Tier Stack
         if: always()
         working-directory: ./docker-compose
