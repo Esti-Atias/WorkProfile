@@ -12,8 +12,8 @@ handler.setLevel(logging.INFO)
 app.logger.addHandler(handler)
 
 host_name = environ.get("HOSTNAME")
-if not health_check():
-    host_name = "no_host"
+# ***שורה זו הוסרה: if not health_check():***
+# ***שורה זו הוסרה:     host_name = "no_host"***
 db_host = environ.get('DB_HOST')
 backend = environ.get('BACKEND') or "http://localhost"
 
@@ -40,16 +40,16 @@ def add():
 
 @app.route("/health")
 def health():
-     health_messages = []
-     # Simple application health check
-     try:
-         app.logger.info("Application is running")
-         health_messages.append("Application: Healthy")
-     except Exception as e:
-         app.logger.error(f"Application health check failed: {e}")
-         health_messages.append("Application: Not Healthy")
-     combined_health_status = "\\\\n".join(health_messages)
-     return combined_health_status
+    health_messages = []
+    # Simple application health check
+    try:
+        app.logger.info("Application is running")
+        health_messages.append("Application: Healthy")
+    except Exception as e:
+        app.logger.error(f"Application health check failed: {e}")
+        health_messages.append("Application: Not Healthy")
+    combined_health_status = "\\\\n".join(health_messages)
+    return combined_health_status
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
