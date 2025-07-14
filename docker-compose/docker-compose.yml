@@ -12,7 +12,7 @@ services:
     restart: always
     volumes:
       - db_data:/var/lib/mysql
-      - ../src/init.sql:/tmp/init.sql # ***תיקון קריטי: הנתיב שונה ל-../src/init.sql***
+      - ../src/init.sql:/tmp/init.sql # הנתיב המתוקן ל-init.sql
     environment:
       MYSQL_ROOT_PASSWORD: flaskapp
       MYSQL_DATABASE: exampleDb
@@ -30,6 +30,7 @@ services:
       start_period: 60s
     command: |
       bash -c "
+      # אתחול ספריית הנתונים אם היא ריקה. זה קריטי כשאנחנו עוקפים את ה-entrypoint הדיפולטיבי.
       if [ ! -d /var/lib/mysql/mysql ]; then
         echo 'Initializing MySQL data directory...'
         mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
@@ -38,18 +39,29 @@ services:
         echo 'MySQL data directory already exists. Skipping initialization.'
       fi
 
+      # הפעלת שרת MySQL ברקע
       mysqld &
       MYSQL_PID=$!
       
+      # המתנה עד ש-MySQL יהיה מוכן לחיבורים
       until mysqladmin ping -h localhost --silent; do
         echo 'waiting for mysqld to be connectable...'
         sleep 2
       done
       
-      echo 'mysqld is connectable. Executing init.sql...'
-      mysql -u root -p\"$$MYSQL_ROOT_PASSWORD\" < /tmp/init.sql &&
+      echo 'mysqld is connectable. Setting root password and executing init.sql...'
+
+      # שלב חדש: הגדרת סיסמת ה-root.
+      # מתחברים ללא סיסמה (כי כך נוצר המשתמש root בהתחלה).
+      # משתמשים ב-$$MYSQL_ROOT_PASSWORD כדי ש-bash יקבל את ערך המשתנה.
+      mysql -u root -h localhost -e \"ALTER USER 'root'@'localhost' IDENTIFIED BY '$$MYSQL_ROOT_PASSWORD'; FLUSH PRIVILEGES;\" && \
+      echo 'Root password set successfully.' || { echo 'ERROR: Failed to set root password!'; exit 1; }
+
+      # עכשיו מריצים את init.sql עם הסיסמה החדשה של root
+      mysql -u root -p\"$$MYSQL_ROOT_PASSWORD\" < /tmp/init.sql && \
       echo 'init.sql executed successfully' || { echo 'ERROR: init.sql failed!'; exit 1; }
-      
+
+      # המתנה לתהליך ה-mysqld הראשי כדי שהקונטיינר יישאר פעיל
       wait $MYSQL_PID
       "
 
