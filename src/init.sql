@@ -1,21 +1,20 @@
 CREATE DATABASE IF NOT EXISTS `exampleDb`;
-
 GRANT ALL PRIVILEGES ON `exampleDb` TO 'flaskapp'@'%' IDENTIFIED BY 'flaskapp' WITH GRANT OPTION;
-
 FLUSH PRIVILEGES;
 
 USE exampleDb;
 
-CREATE TABLE IF NOT EXISTS people (
-    `id` INT(11) NOT NULL AUTO_INCREMENT,
-    `firstname` VARCHAR(100) NOT NULL,
-    `lastname` VARCHAR(100) NOT NULL,
-    `age` INT(11) NOT NULL,
-    `address` VARCHAR(100) NOT NULL,
-    `workplace` VARCHAR(100) NOT NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `id` (`id`)
+CREATE TABLE IF NOT EXISTS `people` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `firstname` varchar(100) NOT NULL,
+  `lastname` varchar(100) NOT NULL,
+  `age` int(11) NOT NULL,
+  `address` varchar(100) NOT NULL,
+  `workplace` varchar(100) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `id` (`id`)
 ) ENGINE=MyISAM AUTO_INCREMENT=10001;
+
 
 INSERT INTO `people` (`firstname`, `lastname`, `age`, `address`, `workplace`) VALUES
 ('John', 'Doe', 30, '123 Main St, New York, NY 10030', 'Google'),
