@@ -30,6 +30,15 @@ services:
       start_period: 60s
     command: >
       bash -c "
+      # *** חדש: אתחול ספריית הנתונים אם היא ריקה ***
+      if [ ! -d /var/lib/mysql/mysql ]; then
+        echo 'Initializing MySQL data directory...'
+        mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+        echo 'MySQL data directory initialized.'
+      else
+        echo 'MySQL data directory already exists. Skipping initialization.'
+      fi
+
       mysqld &
       MYSQL_PID=$!;
       until mysqladmin ping -h localhost --silent; do
