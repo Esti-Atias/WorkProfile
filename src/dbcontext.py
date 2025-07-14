@@ -1,9 +1,8 @@
 from typing import List
 from person import Person
-from unittest import result
 import mysql.connector
 from os import environ
-from person import Person
+import time # ***חדש: ייבוא מודול time***
 from flask import Response
 
 db_user = environ.get('DB_USER')
@@ -19,6 +18,24 @@ config = {
     "port": 3306
 }
 
+# ***חדש: פונקציה עזר להתחברות עם Retry***
+def _connect_with_retry(max_retries=15, retry_delay=5): # הגדלתי את ה-retries
+    for i in range(max_retries):
+        try:
+            cnx = mysql.connector.connect(**config)
+            if cnx.is_connected():
+                print(f"Successfully connected to DB on attempt {i+1}")
+                return cnx
+        except mysql.connector.errors.InterfaceError as err:
+            print(f"Attempt {i+1} failed to connect to DB: {err}")
+            if i < max_retries - 1:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print("Max retries reached. Could not connect to the database.")
+                raise # זרוק את השגיאה אם כל הניסיונות נכשלו
+    return None # לא אמור להגיע לכאן אם raise מופעל
+
 def demo_data() -> List[Person]:
     person1 = Person(1, "John", "Doe", 30, "76 Ninth Avenue St, New York, NY 10011, USA", "Google")
     person2 = Person(2, "Jane", "Doe", 28, "15 Aabogade St, Aarhus, Denmark 8200", "Microsoft")
@@ -33,7 +50,11 @@ def db_data() -> List[Person]:
     if not (db_user and db_pass):
         raise Exception("DB_USER and DB_PASS are not set")
     
-    cnx = mysql.connector.connect(**config)
+    # ***שונה: השתמש בפונקציית _connect_with_retry***
+    cnx = _connect_with_retry() 
+    if cnx is None: # אם החיבור נכשל לאחר retries
+        return [] # או זרוק שגיאה מתאימה
+    
     result = []
     if cnx.is_connected():
         cursor = cnx.cursor()
@@ -50,14 +71,20 @@ def db_data() -> List[Person]:
 def db_delete(id: int) -> Response:
     if not db_host:
         return Response(status=200)
-    cnx = mysql.connector.connect(**config)
+    
+    # ***שונה: השתמש בפונקציית _connect_with_retry***
+    cnx = _connect_with_retry()
+    if cnx is None:
+        return Response(status=500, response="Failed to connect to database for delete operation") # החזר שגיאה מתאימה
+    
     status = 200
     if cnx.is_connected():
         cursor = cnx.cursor()
         try:
             cursor.execute(f"DELETE FROM people WHERE id = {id}")
             cnx.commit()
-        except:
+        except Exception as e: # תפוס שגיאה ספציפית יותר
+            print(f"Error deleting person: {e}")
             status = 404
         finally:
             if cnx.is_connected():
@@ -68,7 +95,12 @@ def db_delete(id: int) -> Response:
 def db_add(person: Person) -> Response:
     if not db_host:
         return Response(status=200)
-    cnx = mysql.connector.connect(**config)
+    
+    # ***שונה: השתמש בפונקציית _connect_with_retry***
+    cnx = _connect_with_retry()
+    if cnx is None:
+        return Response(status=500, response="Failed to connect to database for add operation") # החזר שגיאה מתאימה
+    
     status = 200
     personId = 0
     if cnx.is_connected():
@@ -77,7 +109,8 @@ def db_add(person: Person) -> Response:
             cursor.execute(f"INSERT INTO people (firstName, lastName, age, address, workplace) VALUES ('{person.first_name}', '{person.last_name}', {person.age}, '{person.address}', '{person.workplace}')")
             cnx.commit()
             personId = cursor.lastrowid
-        except:
+        except Exception as e: # תפוס שגיאה ספציפית יותר
+            print(f"Error adding person: {e}")
             status = 404
         finally:
             if cnx.is_connected():
@@ -85,20 +118,25 @@ def db_add(person: Person) -> Response:
                 cnx.close()
     return Response(status=status, response=str(personId))
 
-
 def health_check() -> bool:
     if not db_host:
         return True
-    cnx = mysql.connector.connect(**config)
-    response = False
-    if cnx.is_connected():
-        cursor = cnx.cursor()
-        try:
-            cursor.execute("SELECT 1")
-            cursor.fetchall()
-            response = True
-        finally:
-            if cnx.is_connected():
-                cursor.close()
-                cnx.close()
-    return response
+    
+    # ***שונה: השתמש בפונקציית _connect_with_retry***
+    try:
+        cnx = _connect_with_retry(max_retries=1, retry_delay=0) # עבור health_check, ננסה פעם אחת בלבד
+        if cnx:
+            # אם החיבור הצליח, בצע בדיקה קלה וסגור
+            cursor = cnx.cursor()
+            try:
+                cursor.execute("SELECT 1")
+                cursor.fetchall()
+                return True
+            finally:
+                if cnx.is_connected():
+                    cursor.close()
+                    cnx.close()
+        return False
+    except Exception as e:
+        print(f"Health check connection attempt failed: {e}")
+        return False
