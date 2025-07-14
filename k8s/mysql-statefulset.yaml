@@ -1,51 +1,52 @@
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: mysql
-spec:
-  selector:
-    matchLabels:
-      app: mysql
-  serviceName: "mysql-service"
-  replicas: 1
-  template:
+    apiVersion: apps/v1
+    kind: StatefulSet
     metadata:
-      labels:
-        app: mysql
+      name: mysql
     spec:
-      containers:
-        - name: mysql
-          image: mysql:8.0
-          ports:
-            - containerPort: 3306
-              name: mysql
-          envFrom:
-            - secretRef:
-                name: mysql-secret # שימוש ב-Secret עבור משתני סביבה
-          volumeMounts:
-            - name: mysql-persistent-storage
-              mountPath: /var/lib/mysql
-          livenessProbe:
-            exec:
-              command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 3
-          readinessProbe:
-            exec:
-              command: ["mysql", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)", "-e", "SELECT 1;"]
-            initialDelaySeconds: 45 # הגדלתי את ההשהיה הראשונית
-            periodSeconds: 10
-            timeoutSeconds: 5
-            successThreshold: 1
-            failureThreshold: 5 # הגדלתי את מספר הניסיונות
-  volumeClaimTemplates:
-    - metadata:
-        name: mysql-persistent-storage
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi # גודל אחסון
+      selector:
+        matchLabels:
+          app: mysql
+      serviceName: "mysql-service"
+      replicas: 1
+      template:
+        metadata:
+          labels:
+            app: mysql
+        spec:
+          containers:
+            - name: mysql
+              image: mysql:8.0
+              ports:
+                - containerPort: 3306
+                  name: mysql
+              envFrom:
+                - secretRef:
+                    name: mysql-secret # שימוש ב-Secret עבור משתני סביבה
+              volumeMounts:
+                - name: mysql-persistent-storage
+                  mountPath: /var/lib/mysql
+              livenessProbe:
+                exec:
+                  command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+                initialDelaySeconds: 60 # הגדלתי מ-30 ל-60 שניות
+                periodSeconds: 10
+                timeoutSeconds: 5
+                successThreshold: 1
+                failureThreshold: 3
+              readinessProbe:
+                exec:
+                  command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+                initialDelaySeconds: 90 # הגדלתי מ-45 ל-90 שניות
+                periodSeconds: 10
+                timeoutSeconds: 5
+                successThreshold: 1
+                failureThreshold: 5
+      volumeClaimTemplates:
+        - metadata:
+            name: mysql-persistent-storage
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 1Gi # גודל אחסון
+    
