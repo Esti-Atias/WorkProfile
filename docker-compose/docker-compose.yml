@@ -12,7 +12,7 @@ services:
     restart: always
     volumes:
       - db_data:/var/lib/mysql
-      - ./src/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./src/init.sql:/tmp/init.sql # ***שונה: מעלה את init.sql ל-/tmp/init.sql***
     environment:
       MYSQL_ROOT_PASSWORD: flaskapp
       MYSQL_DATABASE: exampleDb
@@ -27,7 +27,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 60s # ***הוגדל ל-60 שניות***
+    command: > # ***חדש: פקודה מותאמת אישית לאתחול ה-DB***
+      bash -c "
+      mysqld &
+      until mysqladmin ping -h localhost --silent; do
+        echo 'waiting for mysqld to be connectable...'
+        sleep 2
+      done
+      mysql -u root -p$$MYSQL_ROOT_PASSWORD < /tmp/init.sql &&
+      echo 'init.sql executed successfully'
+      wait $!
+      "
 
   app:
     build:
@@ -50,11 +61,11 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"] 
+      test: ["CMD", "curl", "-f", "http://localhost:5000"] # בדיקה בנתיב השורש
       interval: 10s
       timeout: 5s
-      retries: 15
-      start_period: 45s 
+      retries: 20 # הוגדל ל-20
+      start_period: 60s # הוגדל ל-60 שניות
 
   nginx:
     image: nginx:latest
@@ -70,7 +81,7 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/"] # בדיקה בנתיב השורש
       interval: 10s
       timeout: 5s
       retries: 5
