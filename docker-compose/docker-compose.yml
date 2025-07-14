@@ -12,7 +12,7 @@ services:
     restart: always
     volumes:
       - db_data:/var/lib/mysql
-      - ./src/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../src/init.sql:/docker-entrypoint-initdb.d/init.sql # הנתיב הנכון ל-init.sql
     environment:
       MYSQL_ROOT_PASSWORD: flaskapp
       MYSQL_DATABASE: exampleDb
@@ -27,7 +27,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 60s # נותן ל-DB מספיק זמן לאתחל את עצמו
 
   app:
     build:
@@ -48,13 +48,13 @@ services:
       - frontend_network
     depends_on:
       db:
-        condition: service_healthy
+        condition: service_healthy # האפליקציה תמתין עד שה-DB יהיה Healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"] 
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
       interval: 10s
       timeout: 5s
-      retries: 15
-      start_period: 45s 
+      retries: 15 # הגדלתי את ה-retries כדי לתת לאפליקציה יותר זמן
+      start_period: 45s
 
   nginx:
     image: nginx:latest
