@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   frontend_network:
   backend_network:
@@ -51,11 +49,11 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000"] 
       interval: 10s
       timeout: 5s
       retries: 15
-      start_period: 20s
+      start_period: 45s 
 
   nginx:
     image: nginx:latest
@@ -71,7 +69,7 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 10s
       timeout: 5s
       retries: 5
