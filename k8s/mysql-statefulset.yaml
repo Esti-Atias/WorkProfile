@@ -6,7 +6,7 @@ spec:
   selector:
     matchLabels:
       app: mysql
-  serviceName: mysql-service
+  serviceName: "mysql-service"
   replicas: 1
   template:
     metadata:
@@ -21,21 +21,31 @@ spec:
               name: mysql
           envFrom:
             - secretRef:
-                name: mysql-secret
+                name: mysql-secret # שימוש ב-Secret עבור משתני סביבה
           volumeMounts:
             - name: mysql-persistent-storage
               mountPath: /var/lib/mysql
-            - name: init-sql
-              mountPath: /docker-entrypoint-initdb.d
-      volumes:
-        - name: init-sql
-          configMap:
-            name: mysql-initdb
+          livenessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["mysql", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)", "-e", "SELECT 1;"]
+            initialDelaySeconds: 45 # הגדלתי את ההשהיה הראשונית
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5 # הגדלתי את מספר הניסיונות
   volumeClaimTemplates:
     - metadata:
         name: mysql-persistent-storage
       spec:
-        accessModes: [ "ReadWriteOnce" ]
+        accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 1Gi
+            storage: 1Gi # גודל אחסון
