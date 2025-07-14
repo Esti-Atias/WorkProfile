@@ -275,6 +275,7 @@ jobs:
           fi
           echo "---------------------------------------------------------"
 
+          # *** NEW DEBUGGING FOR init.sql ***
           echo "--- Checking init.sql path and content on the runner ---"
           if [ -f ../src/init.sql ]; then
             echo "✓ init.sql found at ../src/init.sql"
@@ -286,7 +287,7 @@ jobs:
             head -c 100 ../src/init.sql
             echo ""
             echo "Last 100 characters of init.sql:"
-            tail -c 100 ../src/init.sql
+            tail -c 100 ../src/init.sql # ***תיקון: init.sql במקום init/sql***
             echo ""
             echo "Full content of init.sql (with special characters visible):"
             cat -vET ../src/init.sql # Displays non-printable characters
@@ -294,6 +295,7 @@ jobs:
             echo "✗ init.sql NOT found at ../src/init.sql to inspect content."
           fi
           echo "------------------------------------------------------"
+          # *** END NEW DEBUGGING ***
 
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
@@ -305,7 +307,7 @@ jobs:
         working-directory: ./docker-compose
         run: |
           echo "Waiting for services to be fully ready..."
-          sleep 20
+          sleep 20 
 
           echo "Checking Nginx health..."
           curl -f http://localhost:${{ env.NGINX_PORT }}/ && echo "✓ Nginx proxy works" || { echo "ERROR: Nginx proxy failed! See logs below."; exit 1; }
@@ -313,32 +315,33 @@ jobs:
 
           HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.NGINX_PORT }}/health)
           echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" || { echo "ERROR: Application health check failed! Response: $HEALTH_RESPONSE"; exit 1; }
-          echo "✓ Application health check works"
+          echo "✓ Application health check works" 
+      
+      - name: Gather Container Logs on Failure
+        if: failure() || cancelled()
+        working-directory: ./docker-compose
+        run: |
+          echo "Gathering logs for debugging due to test failure..."
+          echo "--- app container logs ---"
+          docker compose logs app
+          echo "--- db container logs ---"
+          docker compose logs db
+          echo "--- docker compose ps -a ---"
+          docker compose logs nginx # ***שונה: הוספתי את Nginx ללוגים***
+          docker compose ps -a
+          echo "--- docker compose config (for network verification) ---"
+          docker compose config
 
-      - name: Gather Container Logs on Failure
-        if: failure() || cancelled()
-        working-directory: ./docker-compose
-        run: |
-          echo "Gathering logs for debugging due to test failure..."
-          echo "--- app container logs ---"
-          docker compose logs app
-          echo "--- db container logs ---"
-          docker compose logs db
-          echo "--- docker compose ps -a ---"
-          docker compose ps -a
-          echo "--- docker compose config (for network verification) ---"
-          docker compose config
+      - name: Cleanup 3-Tier Stack
+        if: always()
+        working-directory: ./docker-compose
+        run: |
+          docker compose down -v || true
 
-      - name: Cleanup 3-Tier Stack
-        if: always()
-        working-directory: ./docker-compose
-        run: |
-          docker compose down -v || true
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: three_tier_tests
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: All previous steps completed, image already published.
-        run: echo "Image was already built and pushed in the 'build_and_validate' job."
+  publish:
+    runs-on: ubuntu-latest
+    needs: three_tier_tests
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: All previous steps completed, image already published.
+        run: echo "Image was already built and pushed in the 'build_and_validate' job."
