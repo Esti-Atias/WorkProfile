@@ -1,8 +1,7 @@
 CREATE DATABASE IF NOT EXISTS `exampleDb`;
-GRANT ALL PRIVILEGES ON `exampleDb` TO 'flaskapp'@'%' IDENTIFIED BY 'flaskapp' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
 
 USE exampleDb;
+
 
 CREATE TABLE IF NOT EXISTS `people` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -18,5 +17,5 @@ CREATE TABLE IF NOT EXISTS `people` (
 
 INSERT INTO `people` (`firstname`, `lastname`, `age`, `address`, `workplace`) VALUES
 ('John', 'Doe', 30, '123 Main St, New York, NY 10030', 'Google'),
-('Jane', 'Doe', 28, '123 Main St, New York, NY 10030', 'Microsoft'),
-('Jack', 'Doe', 25, '123 Main St, New York, NY 10030', 'Amazon');
+('Jane', 'Doe', 28, '15 Aabogade St, Aarhus, Denmark 8200', 'Microsoft'),
+('Jack', 'Doe', 25, '98 Yigal Alon St, Tel Aviv, Israel 6789141', 'Amazon');
