@@ -28,9 +28,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
-    command: >
+    command: |
       bash -c "
-      # *** חדש: אתחול ספריית הנתונים אם היא ריקה ***
+      # אתחול ספריית הנתונים אם היא ריקה. זה קריטי כשאנחנו עוקפים את ה-entrypoint הדיפולטיבי.
       if [ ! -d /var/lib/mysql/mysql ]; then
         echo 'Initializing MySQL data directory...'
         mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
@@ -39,17 +39,23 @@ services:
         echo 'MySQL data directory already exists. Skipping initialization.'
       fi
 
+      # הפעלת שרת MySQL ברקע
       mysqld &
-      MYSQL_PID=$!;
+      MYSQL_PID=$!
+      
+      # המתנה עד ש-MySQL יהיה מוכן לחיבורים
       until mysqladmin ping -h localhost --silent; do
         echo 'waiting for mysqld to be connectable...'
         sleep 2
-      done;
+      done
       
       echo 'mysqld is connectable. Executing init.sql...'
+      # הרצת סקריפט init.sql באמצעות לקוח mysql
+      # יש להשתמש בגרשיים סביב הסיסמה כדי למנוע בעיות עם תווים מיוחדים
       mysql -u root -p\"$$MYSQL_ROOT_PASSWORD\" < /tmp/init.sql &&
       echo 'init.sql executed successfully' || { echo 'ERROR: init.sql failed!'; exit 1; }
       
+      # המתנה לתהליך ה-mysqld הראשי כדי שהקונטיינר יישאר פעיל
       wait $MYSQL_PID
       "
 
