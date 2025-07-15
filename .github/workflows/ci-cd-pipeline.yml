@@ -245,7 +245,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Kind Cluster
-        uses: kubernetes-sigs/kind@v1.2.0
+        uses: kubernetes-sigs/kind@v1 # ***התיקון כאן: שינוי מ-v1.2.0 ל-v1***
         with:
           node_image: kindest/node:v1.28.0 # גרסת Kind Node image
 
@@ -446,7 +446,7 @@ jobs:
           echo "    * **Test adding a new person:** Click 'Add Person', fill in details, and submit. Verify the new person appears."
           echo "    * **Test deleting a person:** Click on an existing person (if UI supports it) to confirm deletion works."
           echo ""
-          echo "8.  **Clean Up Kubernetes Resources (After Testing):**"
+          echo "8.  **Clean Up Kubernetes Resources (After Testing):"
           echo "    * **First, kill the `port-forward` process:**"
           echo "        ```bash"
           echo "        kill \$FORWARD_PID"
