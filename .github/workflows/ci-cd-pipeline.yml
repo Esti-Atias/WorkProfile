@@ -307,11 +307,19 @@ jobs:
               });
               console.log(`Successfully created Git tag: v${newTag}`);
             } catch (error) {
-              // Safely check for error.data and error.data.message before accessing
-              if (error && error.status === 422 && error.data && typeof error.data.message === 'string' && error.data.message.includes('Reference already exists')) {
+              let errorMessage = error.message || String(error);
+              let isReferenceExistsError = false;
+              if (error && error.status === 422 && error.data) {
+                if (typeof error.data.message === 'string' && error.data.message.includes('Reference already exists')) {
+                  isReferenceExistsError = true;
+                }
+                errorMessage = error.data.message || errorMessage; 
+              }
+
+              if (isReferenceExistsError) {
                 console.log('Git tag already exists, skipping creation.');
               } else {
-                console.error(`Error creating Git tag: ${error.message || error}`);
+                console.error(`Error creating Git tag: ${errorMessage}`);
                 throw error;
               }
             }
@@ -565,7 +573,7 @@ jobs:
           echo "    * Deploy the WorkProfile ConfigMap:"
           echo "        ```bash"
           echo "        kubectl apply -f k8s/workprofile-configmap.yaml"
-          echo "        ```"
+          H2O "        ```"
           echo "    * Deploy the WorkProfile Deployment (using the temporary file):"
           echo "        ```bash"
           echo "        kubectl apply -f k8s/workprofile-deployment.yaml"
