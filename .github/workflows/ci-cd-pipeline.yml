@@ -603,7 +603,7 @@ jobs:
           echo "    * **Test adding a new person:** Click 'Add Person', fill in details, and submit. Verify the new person appears."
           echo "    * **Test deleting a person:** Click on an existing person (if UI supports it) to confirm deletion works."
           echo ""
-          echo "8.  **Clean Up Kubernetes Resources (After Testing):**"
+          echo "8.  **Clean Up Kubernetes Resources (After Testing):"
           echo "    * **First, kill את תהליך ה-`port-forward`:**"
           echo "        ```bash"
           echo "        kill \$FORWARD_PID"

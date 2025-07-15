@@ -42,7 +42,7 @@ spec:
             exec:
               # Using MYSQL_ROOT_PASSWORD for mysqladmin ping
               command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-            initialDelaySeconds: 60
+            initialDelaySeconds: 90 # Increased from 60
             periodSeconds: 10
             timeoutSeconds: 5
             successThreshold: 1
@@ -51,7 +51,7 @@ spec:
             exec:
               # Using MYSQL_ROOT_PASSWORD for mysqladmin ping
               command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-            initialDelaySeconds: 90
+            initialDelaySeconds: 120 # Increased from 90
             periodSeconds: 10
             timeoutSeconds: 5
             successThreshold: 1
