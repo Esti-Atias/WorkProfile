@@ -288,7 +288,7 @@ jobs:
   # Stage 4: Publish (Image already pushed in build_and_test_app, this is just for clarity)
   publish_image:
     runs-on: ubuntu-latest
-    needs: three_tier_tests # Depends on Stage 3 - only if all tests passed
+    needs: [three_tier_tests, build_and_test_app] # Depends on Stage 3 and Stage 2 (for outputs)
     if: github.ref == 'refs/heads/main' # Only if it's a push to the main branch
     steps:
       - name: Image already built and pushed in 'build_and_test_app' job
@@ -307,9 +307,11 @@ jobs:
               });
               console.log(`Successfully created Git tag: v${newTag}`);
             } catch (error) {
-              if (error.status === 422 && error.data.message.includes('Reference already exists')) {
+              // Safely check for error.data and error.data.message before accessing
+              if (error && error.status === 422 && error.data && typeof error.data.message === 'string' && error.data.message.includes('Reference already exists')) {
                 console.log('Git tag already exists, skipping creation.');
               } else {
+                console.error(`Error creating Git tag: ${error.message || error}`);
                 throw error;
               }
             }
