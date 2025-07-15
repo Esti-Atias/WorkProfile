@@ -573,7 +573,7 @@ jobs:
           echo "    * Deploy the WorkProfile ConfigMap:"
           echo "        ```bash"
           echo "        kubectl apply -f k8s/workprofile-configmap.yaml"
-          H2O "        ```"
+          echo "        ```"
           echo "    * Deploy the WorkProfile Deployment (using the temporary file):"
           echo "        ```bash"
           echo "        kubectl apply -f k8s/workprofile-deployment.yaml"
