@@ -193,6 +193,57 @@ jobs:
           docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
           echo "Direct pull of $IMAGE_TAG_USED succeeded."
 
+      - name: Debug Dockerfile path
+        working-directory: ./docker-compose
+        run: |
+          echo "Current working directory within docker-compose step:"
+          pwd
+          echo "Contents of the current directory (docker-compose/):"
+          ls -F
+          echo "Contents of the parent directory (repository root):"
+          ls -F ..
+          echo "Checking if Dockerfile exists in parent directory from here:"
+          test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in parent directory!"
+          echo "Checking if Dockerfile exists in current directory from here (not expected):"
+          test -f Dockerfile && echo "✓ Dockerfile found in current directory (unexpected)" || echo "✗ Dockerfile NOT found in current directory!"
+          
+          echo "--- Checking Dockerfile size and content on the runner ---"
+          if [ -f ../Dockerfile ]; then
+            echo "Size of Dockerfile: $(du -b ../Dockerfile | awk '{print $1}') bytes"
+            echo "First 100 characters of Dockerfile:"
+            head -c 100 ../Dockerfile
+            echo ""
+            echo "Last 100 characters of Dockerfile:"
+            tail -c 100 ../Dockerfile
+            echo ""
+            echo "Full content of Dockerfile:"
+            cat ../Dockerfile
+          else
+            echo "Dockerfile does not exist at ../Dockerfile to inspect content."
+          fi
+          echo "---------------------------------------------------------"
+
+          # Debugging for init.sql
+          echo "--- Checking init.sql path and content on the runner ---"
+          if [ -f ../src/init.sql ]; then
+            echo "✓ init.sql found at ../src/init.sql"
+            echo "Size of init.sql: $(du -b ../src/init.sql | awk '{print $1}') bytes"
+            echo "File type of init.sql: $(file ../src/init.sql)"
+            echo "Permissions of init.sql: $(ls -l ../src/init.sql | awk '{print $1}')"
+            echo "Encoding of init.sql: $(file -i ../src/init.sql | sed 's/.*charset=\([^;]*\).*/\1/')"
+            echo "First 100 characters of init.sql:"
+            head -c 100 ../src/init.sql
+            echo ""
+            echo "Last 100 characters of init.sql:"
+            tail -c 100 ../src/init.sql
+            echo ""
+            echo "Full content of init.sql (with special characters visible):"
+            cat -vET ../src/init.sql # Displays non-printable characters
+          else
+            echo "✗ init.sql NOT found at ../src/init.sql to inspect content."
+          fi
+          echo "------------------------------------------------------"
+
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
         run: |
@@ -256,14 +307,24 @@ jobs:
         with:
           node_image: kindest/node:v1.28.0 # Kind Node image version
 
-      - name: Load Docker Image into Kind Cluster
+      - name: Login to GitHub Container Registry (GHCR) for K8s pull
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load Docker Image from GHCR for testing # NEW STEP: Pull image before loading to Kind
         run: |
           IMAGE_FULL_NAME="${{ needs.build_and_test_app.outputs.full_image_name }}"
           VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
           FULL_IMAGE_TAG="${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
-          echo "Loading image ${FULL_IMAGE_TAG} into Kind cluster..."
-          kind load docker-image "${FULL_IMAGE_TAG}" || { echo "ERROR: Failed to load image into Kind cluster!"; exit 1; }
-          echo "Image loaded successfully."
+          
+          echo "Attempting to pull image: ${FULL_IMAGE_TAG}"
+          docker pull "${FULL_IMAGE_TAG}" || \
+          (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
+          { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
+          echo "Image pulled successfully."
 
       - name: Inject dynamic image tag into workprofile-deployment.yaml for K8s testing
         run: |
@@ -294,26 +355,56 @@ jobs:
 
       - name: Run Kubernetes Application Tests
         run: |
-          NODE_PORT=$(kubectl get service workprofile-service -o jsonpath='{.spec.ports[0].nodePort}')
-          echo "WorkProfile NodePort: $NODE_PORT"
+          echo "Setting up port-forwarding for WorkProfile app..."
+          # Find the pod name dynamically for port-forwarding
+          POD_NAME=$(kubectl get pods -l app=workprofile -o jsonpath='{.items[0].metadata.name}')
+          if [ -z "$POD_NAME" ]; then
+            echo "ERROR: WorkProfile pod not found for port-forwarding!"
+            exit 1
+          fi
+          echo "Port-forwarding from pod: $POD_NAME"
+          kubectl port-forward pod/$POD_NAME 5000:5000 &
+          FORWARD_PID=$!
+          echo "Port-forwarding PID: $FORWARD_PID"
+          sleep 20 # Give port-forwarding time to establish
 
-          # In Kind, the Node IP is usually the IP of the Kind control-plane node
-          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-          echo "Node IP: $NODE_IP"
+          echo "Testing Kubernetes app main endpoint..."
+          curl -f http://localhost:5000/ && echo "✓ Kubernetes app works" || { echo "ERROR: Kubernetes app main endpoint failed!"; kill $FORWARD_PID || true; exit 1; }
+          
+          echo "Testing Kubernetes app health endpoint..."
+          curl -f http://localhost:5000/health && echo "✓ Kubernetes health works" || { echo "ERROR: Kubernetes health endpoint failed!"; kill $FORWARD_PID || true; exit 1; }
+          
+          echo "Testing Kubernetes database connectivity via app health endpoint..."
+          curl -s http://localhost:5000/health | grep -q "Application: Healthy" && echo "✓ Kubernetes database works (via app health)" || { echo "ERROR: Kubernetes database connectivity check failed!"; kill $FORWARD_PID || true; exit 1; }
+          
+          kill $FORWARD_PID || true # Kill port-forwarding process
+          echo "Port-forwarding stopped."
 
-          # Wait a moment for services to be fully exposed
-          sleep 10
-
-          curl -f http://$NODE_IP:$NODE_PORT/ && echo "✓ Kubernetes app works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
-          curl -f http://$NODE_IP:$NODE_PORT/health && echo "✓ Kubernetes health works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
-          curl -s http://$NODE_IP:$NODE_PORT/health | grep "Application: Healthy" && echo "✓ Kubernetes database works (via app health)" || { echo "ERROR: Database health check failed!"; exit 1; }
-          echo "✓ All Kubernetes application tests passed."
+      - name: Gather Kubernetes Logs on Failure
+        if: failure() || cancelled()
+        run: |
+          echo "Gathering Kubernetes logs for debugging due to test failure..."
+          echo "--- Kubernetes Pods Status ---"
+          kubectl get pods -o wide
+          echo "--- MySQL Pod Logs ---"
+          kubectl logs mysql-0 || true # Use || true to prevent job failure if pod logs are not available
+          echo "--- WorkProfile Pod Logs ---"
+          kubectl logs deployment/workprofile || true # Use || true to prevent job failure if pod logs are not available
 
       - name: Cleanup Kubernetes Cluster
         if: always()
         run: |
-          kind delete cluster || true
-          echo "Kind cluster deleted."
+          echo "Cleaning up Kubernetes resources..."
+          kubectl delete -f k8s/workprofile-deployment.yaml || true
+          kubectl delete -f k8s/workprofile-service.yaml || true
+          kubectl delete -f k8s/workprofile-configmap.yaml || true
+          kubectl delete -f k8s/mysql-statefulset.yaml || true
+          kubectl delete -f k8s/mysql-service-headless.yaml || true # Added headless service cleanup
+          kubectl delete -f k8s/mysql-service-clusterip.yaml || true # Added clusterip service cleanup
+          kubectl delete -f k8s/mysql-secret.yaml || true
+          kubectl delete pvc mysql-persistent-storage-mysql-0 || true # Added PVC cleanup
+          kubectl delete configmap mysql-initdb-script || true # Added configmap cleanup
+          echo "Kubernetes resources cleaned up."
 
   # Stage 6: Manual Deployment Instructions
   manual_deployment_instructions:
