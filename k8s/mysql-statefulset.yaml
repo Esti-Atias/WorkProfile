@@ -15,20 +15,22 @@ spec:
     spec:
       initContainers:
         - name: init-database-schema
-          image: mysql:8.0
+          image: mysql:8.0 # השתמש באותו אימג' של MySQL
           command: ["sh", "-c"]
           args:
             - |
-              until mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}; do
-                echo "Waiting for MySQL server to be available...";
+              # המתן עד ששרת ה-MySQL יהיה זמין בפורט 3306 (בדיקה רשתית)
+              until mysql -h 127.0.0.1 -P 3306 -u root -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1"; do
+                echo "Waiting for MySQL server to be available on port 3306...";
                 sleep 5;
               done;
               echo "MySQL server is available. Running init script...";
+              # הרץ את סקריפט ה-SQL מה-ConfigMap
               mysql -u root -p${MYSQL_ROOT_PASSWORD} < /etc/mysql-init/init.sql;
               echo "MySQL init script completed.";
           envFrom:
             - secretRef:
-                name: mysql-secret
+                name: mysql-secret # קבל את הסיסמה מה-Secret
           volumeMounts:
             - name: mysql-initdb-volume
               mountPath: /etc/mysql-init
@@ -67,15 +69,10 @@ spec:
             timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 5
-      volumes: # ***השדה volumes עבר לכאן, תחת spec.template.spec***
+      volumes:
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: mysql-persistent-storage-mysql-0
         - name: mysql-initdb-volume
           configMap:
             name: mysql-initdb-script
-  volumeClaimTemplates:
-    - metadata:
-        name: mysql-persistent-storage
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 2Gi
