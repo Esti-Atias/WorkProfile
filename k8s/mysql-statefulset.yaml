@@ -25,7 +25,7 @@ spec:
           volumeMounts:
             - name: mysql-persistent-storage
               mountPath: /var/lib/mysql
-            - name: mysql-initdb-volume # NEW: Volume mount for init.sql
+            - name: mysql-initdb-volume # Volume mount for init.sql
               mountPath: /docker-entrypoint-initdb.d/ # Standard path for MySQL init scripts
           resources:
             requests:
@@ -50,6 +50,10 @@ spec:
             timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 5
+      volumes: # NEW: Define the volume for init.sql ConfigMap - MOVED TO HERE!
+        - name: mysql-initdb-volume
+          configMap:
+            name: mysql-initdb-script # Name of the ConfigMap created in CI/CD
   volumeClaimTemplates:
     - metadata:
         name: mysql-persistent-storage
@@ -58,7 +62,3 @@ spec:
         resources:
           requests:
             storage: 2Gi # גודל אחסון
-  volumes: # NEW: Define the volume for init.sql ConfigMap
-    - name: mysql-initdb-volume
-      configMap:
-        name: mysql-initdb-script # Name of the ConfigMap created in CI/CD
