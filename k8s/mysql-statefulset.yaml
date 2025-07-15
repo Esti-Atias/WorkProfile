@@ -1,52 +1,58 @@
-    apiVersion: apps/v1
-    kind: StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  serviceName: "mysql-service-headless"
+  replicas: 1
+  template:
     metadata:
-      name: mysql
+      labels:
+        app: mysql
     spec:
-      selector:
-        matchLabels:
-          app: mysql
-      serviceName: "mysql-service"
-      replicas: 1
-      template:
-        metadata:
-          labels:
-            app: mysql
-        spec:
-          containers:
-            - name: mysql
-              image: mysql:8.0
-              ports:
-                - containerPort: 3306
-                  name: mysql
-              envFrom:
-                - secretRef:
-                    name: mysql-secret # שימוש ב-Secret עבור משתני סביבה
-              volumeMounts:
-                - name: mysql-persistent-storage
-                  mountPath: /var/lib/mysql
-              livenessProbe:
-                exec:
-                  command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-                initialDelaySeconds: 60 # הגדלתי מ-30 ל-60 שניות
-                periodSeconds: 10
-                timeoutSeconds: 5
-                successThreshold: 1
-                failureThreshold: 3
-              readinessProbe:
-                exec:
-                  command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-                initialDelaySeconds: 90 # הגדלתי מ-45 ל-90 שניות
-                periodSeconds: 10
-                timeoutSeconds: 5
-                successThreshold: 1
-                failureThreshold: 5
-      volumeClaimTemplates:
-        - metadata:
-            name: mysql-persistent-storage
-          spec:
-            accessModes: ["ReadWriteOnce"]
-            resources:
-              requests:
-                storage: 1Gi # גודל אחסון
-    
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+              name: mysql
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          volumeMounts:
+            - name: mysql-persistent-storage
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-persistent-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

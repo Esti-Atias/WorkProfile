@@ -3,8 +3,7 @@ kind: ConfigMap
 metadata:
   name: workprofile-config
 data:
-  DB_HOST: mysql-service # שם השירות של MySQL בקוברנטס
+  DB_HOST: mysql-service-clusterip
   DB_NAME: exampleDb
-  DB_USER: flaskapp
-  DB_PASS: flaskapp
+  BACKEND: http://workprofile-service
   APP_PORT: "5000"
