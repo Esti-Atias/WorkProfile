@@ -1,76 +1,81 @@
-    apiVersion: apps/v1
-    kind: StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  serviceName: "mysql-service-headless"
+  replicas: 1
+  template:
     metadata:
-      name: mysql
+      labels:
+        app: mysql
     spec:
-      selector:
-        matchLabels:
-          app: mysql
-      serviceName: "mysql-service-headless"
-      replicas: 1
-      template:
-        metadata:
-          labels:
-            app: mysql
-        spec:
-          initContainers: # InitContainer חדש להרצת סקריפט האתחול
-            - name: init-database-schema
-              image: mysql:8.0 # השתמש באותו אימג' של MySQL
-              command: ["sh", "-c"]
-              args:
-                - |
-                  # המתן עד ששרת ה-MySQL יהיה זמין
-                  until mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}; do
-                    echo "Waiting for MySQL server to be available...";
-                    sleep 5;
-                  done;
-                  echo "MySQL server is available. Running init script...";
-                  # הרץ את סקריפט ה-SQL מה-ConfigMap
-                  mysql -u root -p${MYSQL_ROOT_PASSWORD} < /etc/mysql-init/init.sql;
-                  echo "MySQL init script completed.";
-              envFrom:
-                - secretRef:
-                    name: mysql-secret # קבל את הסיסמה מה-Secret
-              volumeMounts:
-                - name: mysql-initdb-volume
-                  mountPath: /etc/mysql-init # נתיב חדש לקובץ ה-init.sql מה-ConfigMap
-          containers:
-            - name: mysql
-              image: mysql:8.0
-              ports:
-                - containerPort: 3306
-                  name: mysql
-              envFrom:
-                - secretRef:
-                    name: mysql-secret
-              volumeMounts:
-                - name: mysql-persistent-storage
-                  mountPath: /var/lib/mysql
-              resources:
-                requests:
-                  memory: "512Mi"
-                  cpu: "250m"
-                limits:
-                  memory: "1Gi"
-                  cpu: "500m"
-              livenessProbe:
-                exec:
-                  command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-                initialDelaySeconds: 60
-                periodSeconds: 10
-                timeoutSeconds: 5
-                successThreshold: 1
-                failureThreshold: 3
-              readinessProbe:
-                exec:
-                  command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-                initialDelaySeconds: 90
-                periodSeconds: 10
-                timeoutSeconds: 5
-                successThreshold: 1
-                failureThreshold: 5
-      volumes: # הגדרת ווליום חדש עבור ה-ConfigMap
+      initContainers:
+        - name: init-database-schema
+          image: mysql:8.0
+          command: ["sh", "-c"]
+          args:
+            - |
+              until mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}; do
+                echo "Waiting for MySQL server to be available...";
+                sleep 5;
+              done;
+              echo "MySQL server is available. Running init script...";
+              mysql -u root -p${MYSQL_ROOT_PASSWORD} < /etc/mysql-init/init.sql;
+              echo "MySQL init script completed.";
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          volumeMounts:
+            - name: mysql-initdb-volume
+              mountPath: /etc/mysql-init
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+              name: mysql
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          volumeMounts:
+            - name: mysql-persistent-storage
+              mountPath: /var/lib/mysql
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+      volumes: # ***השדה volumes עבר לכאן, תחת spec.template.spec***
         - name: mysql-initdb-volume
           configMap:
-            name: mysql-initdb-script # שם ה-ConfigMap החדש שיכיל את init.sql
-    
+            name: mysql-initdb-script
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-persistent-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
