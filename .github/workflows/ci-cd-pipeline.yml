@@ -388,6 +388,11 @@ jobs:
           kubectl create configmap mysql-initdb-script --from-file=src/init.sql || { echo "ERROR: Failed to create mysql-initdb-script configmap!"; exit 1; }
           echo "ConfigMap created."
 
+          # *** NEW: Aggressive PVC cleanup before applying StatefulSet ***
+          echo "Attempting to delete existing MySQL PVC (if any) for a clean start..."
+          kubectl delete pvc mysql-persistent-storage-mysql-0 --ignore-not-found || { echo "WARNING: Failed to delete PVC, but continuing. Check permissions if this persists."; }
+          echo "Existing MySQL PVC cleanup attempted."
+
           kubectl apply -f k8s/mysql-secret.yaml || { echo "ERROR: Failed to apply mysql-secret.yaml"; exit 1; }
           kubectl apply -f k8s/mysql-service-headless.yaml || { echo "ERROR: Failed to apply mysql-service-headless.yaml"; exit 1; }
           kubectl apply -f k8s/mysql-service-clusterip.yaml || { echo "ERROR: Failed to apply mysql-service-clusterip.yaml"; exit 1; }
@@ -599,7 +604,7 @@ jobs:
           echo "    * **Test deleting a person:** Click on an existing person (if UI supports it) to confirm deletion works."
           echo ""
           echo "8.  **Clean Up Kubernetes Resources (After Testing):**"
-          echo "    * **First, kill the `port-forward` process:**"
+          echo "    * **First, kill את תהליך ה-`port-forward`:**"
           echo "        ```bash"
           echo "        kill \$FORWARD_PID"
           echo "        ```"
