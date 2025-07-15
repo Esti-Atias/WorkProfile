@@ -314,7 +314,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Load Docker Image from GHCR for testing # NEW STEP: Pull image before loading to Kind
+      - name: Pull Docker Image from GHCR for testing # NEW STEP: Pull image before loading to Kind
         run: |
           IMAGE_FULL_NAME="${{ needs.build_and_test_app.outputs.full_image_name }}"
           VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
@@ -325,6 +325,15 @@ jobs:
           (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
           { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
           echo "Image pulled successfully."
+
+      - name: Load Docker Image into Kind Cluster
+        run: |
+          IMAGE_FULL_NAME="${{ needs.build_and_test_app.outputs.full_image_name }}"
+          VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
+          FULL_IMAGE_TAG="${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          echo "Loading image ${FULL_IMAGE_TAG} into Kind cluster..."
+          kind load docker-image "${FULL_IMAGE_TAG}" || { echo "ERROR: Failed to load image into Kind cluster!"; exit 1; }
+          echo "Image loaded successfully."
 
       - name: Inject dynamic image tag into workprofile-deployment.yaml for K8s testing
         run: |
@@ -495,42 +504,42 @@ jobs:
           echo "        ```"
           echo "    * Create the ConfigMap for the DB initialization script from the `src/init.sql` source file:"
           echo "        ```bash"
-          echo "        kubectl create configmap mysql-initdb-script --from-file=../src/init.sql"
+          echo "        kubectl create configmap mysql-initdb-script --from-file=src/init.sql"
           echo "        ```"
           echo "    * Deploy the MySQL Headless Service:"
           echo "        ```bash"
-          echo "        kubectl apply -f mysql-service-headless.yaml"
+          echo "        kubectl apply -f k8s/mysql-service-headless.yaml"
           echo "        ```"
           echo "    * Deploy the MySQL ClusterIP Service:"
           echo "        ```bash"
-          echo "        kubectl apply -f mysql-service-clusterip.yaml"
+          echo "        kubectl apply -f k8s/mysql-service-clusterip.yaml"
           echo "        ```"
           echo "    * Deploy the MySQL StatefulSet:"
           echo "        ```bash"
-          echo "        kubectl apply -f mysql-statefulset.yaml"
+          echo "        kubectl apply -f k8s/mysql-statefulset.yaml"
           echo "        ```"
           echo "    * **Wait for the MySQL Pod to be Ready:**"
           echo "        ```bash"
-          echo "        kubectl wait --for=condition=ready pod/mysql-0 --timeout=600s"
+          echo "        kubectl wait --for=condition=ready pod/mysql-0 --timeout=600s || { echo \"ERROR: MySQL pod did not become ready!\"; kubectl describe pod mysql-0; kubectl logs mysql-0; exit 1; }"
           echo "        ```"
           echo "        *(Wait patiently for `pod/mysql-0 condition met` message)*"
           echo ""
           echo "6.  **Deploy Application Infrastructure (WorkProfile):**"
           echo "    * Deploy the WorkProfile ConfigMap:"
           echo "        ```bash"
-          echo "        kubectl apply -f workprofile-configmap.yaml"
+          echo "        kubectl apply -f k8s/workprofile-configmap.yaml"
           echo "        ```"
           echo "    * Deploy the WorkProfile Deployment (using the temporary file):"
           echo "        ```bash"
-          echo "        kubectl apply -f workprofile-deployment-temp.yaml"
+          echo "        kubectl apply -f k8s/workprofile-deployment.yaml"
           echo "        ```"
           echo "    * Deploy the WorkProfile NodePort Service:"
           echo "        ```bash"
-          echo "        kubectl apply -f workprofile-service.yaml"
+          echo "        kubectl apply -f k8s/workprofile-service.yaml"
           echo "        ```"
           echo "    * **Wait for the WorkProfile Deployment to be Available:**"
           echo "        ```bash"
-          echo "        kubectl wait --for=condition=available deployment/workprofile --timeout=600s"
+          echo "        kubectl wait --for=condition=available deployment/workprofile --timeout=600s || { echo \"ERROR: WorkProfile deployment did not become available!\"; kubectl describe deployment workprofile; kubectl logs deployment/workprofile; exit 1; }"
           echo "        ```"
           echo "        *(Wait patiently for `deployment.apps/workprofile condition met` message)*"
           echo ""

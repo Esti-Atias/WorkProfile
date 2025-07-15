@@ -13,8 +13,6 @@ spec:
       labels:
         app: mysql
     spec:
-      # InitContainers block has been removed entirely.
-      # The init script will now be mounted directly into the main MySQL container.
       containers:
         - name: mysql
           image: mysql:8.0
@@ -23,12 +21,12 @@ spec:
               name: mysql
           envFrom:
             - secretRef:
-                name: mysql-secret
+                name: mysql-secret # שימוש ב-Secret עבור משתני סביבה
           volumeMounts:
             - name: mysql-persistent-storage
               mountPath: /var/lib/mysql
-            - name: mysql-initdb-volume # Volume mount for the init script ConfigMap
-              mountPath: /docker-entrypoint-initdb.d/ # Mount to the special directory for MySQL init scripts
+            - name: mysql-initdb-volume # NEW: Volume mount for init.sql
+              mountPath: /docker-entrypoint-initdb.d/ # Standard path for MySQL init scripts
           resources:
             requests:
               memory: "512Mi"
@@ -39,7 +37,7 @@ spec:
           livenessProbe:
             exec:
               command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-            initialDelaySeconds: 60
+            initialDelaySeconds: 60 # הגדלתי מ-30 ל-60 שניות
             periodSeconds: 10
             timeoutSeconds: 5
             successThreshold: 1
@@ -47,20 +45,11 @@ spec:
           readinessProbe:
             exec:
               command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"]
-            initialDelaySeconds: 90
+            initialDelaySeconds: 90 # הגדלתי מ-45 ל-90 שניות
             periodSeconds: 10
             timeoutSeconds: 5
             successThreshold: 1
             failureThreshold: 5
-      volumes: # This is still under spec.template.spec.volumes
-        - name: mysql-persistent-storage
-          persistentVolumeClaim:
-            claimName: mysql-persistent-storage-mysql-0
-        - name: mysql-initdb-volume # Volume definition for the init script ConfigMap
-          configMap:
-            name: mysql-initdb-script # Name of the ConfigMap created from src/init.sql
-            # No 'items' field here, as we want to mount the whole ConfigMap as a directory.
-            # The 'init.sql' file will appear directly under /docker-entrypoint-initdb.d/
   volumeClaimTemplates:
     - metadata:
         name: mysql-persistent-storage
@@ -68,4 +57,8 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: 2Gi
+            storage: 2Gi # גודל אחסון
+  volumes: # NEW: Define the volume for init.sql ConfigMap
+    - name: mysql-initdb-volume
+      configMap:
+        name: mysql-initdb-script # Name of the ConfigMap created in CI/CD
