@@ -203,7 +203,7 @@ jobs:
           echo "Contents of the parent directory (repository root):"
           ls -F ..
           echo "Checking if Dockerfile exists in parent directory from here:"
-          test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in parent directory!"
+          test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in current directory!"
           echo "Checking if Dockerfile exists in current directory from here (not expected):"
           test -f Dockerfile && echo "✓ Dockerfile found in current directory (unexpected)" || echo "✗ Dockerfile NOT found in current directory!"
           
@@ -293,6 +293,26 @@ jobs:
     steps:
       - name: Image already built and pushed in 'build_and_test_app' job
         run: echo "Final image with semantic version and 'latest' tag was already pushed to GHCR in the 'build_and_test_app' job."
+      - name: Push Git tag
+        uses: actions/github-script@v6
+        with:
+          script: |
+            try {
+              const newTag = "${{ needs.build_and_test_app.outputs.new_tag }}";
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/v${newTag}`,
+                sha: context.sha
+              });
+              console.log(`Successfully created Git tag: v${newTag}`);
+            } catch (error) {
+              if (error.status === 422 && error.data.message.includes('Reference already exists')) {
+                console.log('Git tag already exists, skipping creation.');
+              } else {
+                throw error;
+              }
+            }
 
   # Stage 5: Kubernetes Deployment Testing
   kubernetes_deployment_testing:
@@ -303,23 +323,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Kind Cluster
-        uses: helm/kind-action@v1.9.0 # UPDATED: Using a more recent and stable version
+        uses: helm/kind-action@v1.9.0 # Using a more recent and stable version
         with:
-          node_image: kindest/node:v1.27.3 # UPDATED: Using a slightly older, well-tested Kubernetes version
+          node_image: kindest/node:v1.27.3 # Using a slightly older, well-tested Kubernetes version
           cluster_name: ci-cluster # Added a specific cluster name
-          # Add a timeout for cluster creation
           wait: 300s # Wait up to 5 minutes for the cluster to be ready
-          # Optionally, you can add more configuration here, e.g., for extra mounts or port mappings
-          # config: |
-          #   kind: Cluster
-          #   apiVersion: kind.x-k8s.io/v1alpha4
-          #   nodes:
-          #   - role: control-plane
-          #     extraPortMappings:
-          #       - containerPort: 30000
-          #         hostPort: 30000
-          #         listenAddress: "127.0.0.1"
-          #         protocol: TCP
 
       - name: Wait for Kind Cluster Nodes to be Ready
         run: |
@@ -334,7 +342,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull Docker Image from GHCR for testing # NEW STEP: Pull image before loading to Kind
+      - name: Pull Docker Image from GHCR for testing
         run: |
           IMAGE_FULL_NAME="${{ needs.build_and_test_app.outputs.full_image_name }}"
           VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
@@ -352,7 +360,7 @@ jobs:
           VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
           FULL_IMAGE_TAG="${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
           echo "Loading image ${FULL_IMAGE_TAG} into Kind cluster..."
-          kind load docker-image "${FULL_IMAGE_TAG}" --name ci-cluster || { echo "ERROR: Failed to load image into Kind cluster!"; exit 1; } # Added --name ci-cluster
+          kind load docker-image "${FULL_IMAGE_TAG}" --name ci-cluster || { echo "ERROR: Failed to load image into Kind cluster!"; exit 1; }
           echo "Image loaded successfully."
 
       - name: Inject dynamic image tag into workprofile-deployment.yaml for K8s testing
@@ -366,19 +374,26 @@ jobs:
 
       - name: Deploy MySQL Components
         run: |
-          kubectl apply -f k8s/mysql-secret.yaml
-          kubectl create configmap mysql-initdb-script --from-file=src/init.sql # Create ConfigMap from src/init.sql
-          kubectl apply -f k8s/mysql-service-headless.yaml
-          kubectl apply -f k8s/mysql-service-clusterip.yaml
-          kubectl apply -f k8s/mysql-statefulset.yaml
+          echo "Creating mysql-initdb-script ConfigMap from src/init.sql..."
+          kubectl create configmap mysql-initdb-script --from-file=src/init.sql || { echo "ERROR: Failed to create mysql-initdb-script configmap!"; exit 1; }
+          echo "ConfigMap created."
+
+          kubectl apply -f k8s/mysql-secret.yaml || { echo "ERROR: Failed to apply mysql-secret.yaml"; exit 1; }
+          kubectl apply -f k8s/mysql-service-headless.yaml || { echo "ERROR: Failed to apply mysql-service-headless.yaml"; exit 1; }
+          kubectl apply -f k8s/mysql-service-clusterip.yaml || { echo "ERROR: Failed to apply mysql-service-clusterip.yaml"; exit 1; }
+          kubectl apply -f k8s/mysql-statefulset.yaml || { echo "ERROR: Failed to apply mysql-statefulset.yaml"; exit 1; }
+          
+          echo "Waiting for MySQL pod to be ready..."
           kubectl wait --for=condition=ready pod/mysql-0 --timeout=600s || { echo "ERROR: MySQL pod did not become ready!"; kubectl describe pod mysql-0; kubectl logs mysql-0; exit 1; }
           echo "✓ MySQL deployed and ready."
 
       - name: Deploy WorkProfile Components
         run: |
-          kubectl apply -f k8s/workprofile-configmap.yaml
-          kubectl apply -f k8s/workprofile-deployment.yaml # Use the modified file
-          kubectl apply -f k8s/workprofile-service.yaml
+          kubectl apply -f k8s/workprofile-configmap.yaml || { echo "ERROR: Failed to apply workprofile-configmap.yaml"; exit 1; }
+          kubectl apply -f k8s/workprofile-deployment.yaml || { echo "ERROR: Failed to apply workprofile-deployment.yaml"; exit 1; }
+          kubectl apply -f k8s/workprofile-service.yaml || { echo "ERROR: Failed to apply workprofile-service.yaml"; exit 1; }
+          
+          echo "Waiting for WorkProfile deployment to be available..."
           kubectl wait --for=condition=available deployment/workprofile --timeout=600s || { echo "ERROR: WorkProfile deployment did not become available!"; kubectl describe deployment workprofile; kubectl logs deployment/workprofile; exit 1; }
           echo "✓ WorkProfile deployed and available."
 
@@ -414,11 +429,11 @@ jobs:
         run: |
           echo "Gathering Kubernetes logs for debugging due to test failure..."
           echo "--- Kubernetes Pods Status ---"
-          kubectl get pods -o wide
+          kubectl get pods -o wide || true
           echo "--- MySQL Pod Logs ---"
-          kubectl logs mysql-0 || true # Use || true to prevent job failure if pod logs are not available
+          kubectl logs mysql-0 || true
           echo "--- WorkProfile Pod Logs ---"
-          kubectl logs deployment/workprofile || true # Use || true to prevent job failure if pod logs are not available
+          kubectl logs deployment/workprofile || true
 
       - name: Cleanup Kubernetes Cluster
         if: always()
@@ -428,11 +443,11 @@ jobs:
           kubectl delete -f k8s/workprofile-service.yaml || true
           kubectl delete -f k8s/workprofile-configmap.yaml || true
           kubectl delete -f k8s/mysql-statefulset.yaml || true
-          kubectl delete -f k8s/mysql-service-headless.yaml || true # Added headless service cleanup
-          kubectl delete -f k8s/mysql-service-clusterip.yaml || true # Added clusterip service cleanup
+          kubectl delete -f k8s/mysql-service-headless.yaml || true
+          kubectl delete -f k8s/mysql-service-clusterip.yaml || true
           kubectl delete -f k8s/mysql-secret.yaml || true
-          kubectl delete pvc mysql-persistent-storage-mysql-0 || true # Added PVC cleanup
-          kubectl delete configmap mysql-initdb-script || true # Added configmap cleanup
+          kubectl delete pvc mysql-persistent-storage-mysql-0 || true # Clean up PVC
+          kubectl delete configmap mysql-initdb-script || true # Clean up ConfigMap
           echo "Kubernetes resources cleaned up."
 
   # Stage 6: Manual Deployment Instructions
@@ -563,7 +578,7 @@ jobs:
           echo "        ```"
           echo "        *(Wait patiently for `deployment.apps/workprofile condition met` message)*"
           echo ""
-          echo "7.  **Verify Application Functionality in Killer Koda (through Browser):**"
+          echo "7.  **Verify Application Functionality in Killer Koda (through Browser):"
           echo "    * Ensure `kubectl port-forward --address 0.0.0.0 deployment/workprofile 5000:5000 &` is running in your Killer Koda terminal."
           echo "    * **Access the application via the Killer Koda 'Traffic Port Accessor' (Web/Ports tab):**"
           echo "        * In the 'Traffic Port Accessor' interface, locate the 'Custom Ports' section."
