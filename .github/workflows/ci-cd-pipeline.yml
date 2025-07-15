@@ -18,14 +18,9 @@ env:
   NGINX_PORT: 8080
 
 jobs:
-  build_and_validate:
+  # Stage 1: Basic Validation
+  basic_validation:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-    outputs:
-      full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
-      new_tag: ${{ steps.increment_version.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -48,6 +43,30 @@ jobs:
           test -f docker-compose/docker-compose.yml && echo "✓ docker-compose/docker-compose.yml exists" || { echo "ERROR: docker-compose/docker-compose.yml missing!"; exit 1; }
           test -f docker-compose/nginx.conf && echo "✓ nginx.conf exists" || { echo "ERROR: nginx.conf missing!"; exit 1; }
           test -f src/init.sql && echo "✓ src/init.sql exists" || { echo "ERROR: src/init.sql missing!"; exit 1; }
+
+  # Stage 2: Build and Test Application
+  build_and_test_app:
+    runs-on: ubuntu-latest
+    needs: basic_validation # תלוי בשלב 1
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      full_image_name: ${{ steps.set_image_name.outputs.full_image_name }}
+      new_tag: ${{ steps.increment_version.outputs.new_tag }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set lowercase image name
         id: set_image_name
@@ -87,17 +106,7 @@ jobs:
           echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
           echo "VERSION_TAG=${new_tag}" >> $GITHUB_ENV
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image to GHCR
+      - name: Build and push Docker image to GHCR (temporary push for testing)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -119,62 +128,10 @@ jobs:
             exit 1
           fi
 
-      - name: Push Git tag
-        if: github.ref == 'refs/heads/main'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'refs/tags/v${{ env.VERSION_TAG }}',
-                sha: context.sha
-              });
-              console.log('Successfully created Git tag: v${{ env.VERSION_TAG }}');
-            } catch (error) {
-              if (error.status === 422 && error.data.message.includes('Reference already exists')) {
-                console.log('Git tag already exists, skipping creation.');
-              } else {
-                throw error;
-              }
-            }
-      
-      - name: Verify build_and_validate outputs
-        run: |
-          echo "Verification Step in build_and_validate:"
-          echo "new_tag output: ${{ steps.increment_version.outputs.new_tag }}"
-          echo "full_image_name output: ${{ steps.set_image_name.outputs.full_image_name }}"
-          echo "VERSION_TAG env: ${{ env.VERSION_TAG }}"
-          
-          if [ -z "${{ steps.increment_version.outputs.new_tag }}" ]; then
-            echo "CRITICAL VERIFICATION ERROR: new_tag output is empty in build_and_validate!"
-            exit 1
-          fi
-
-  single_container_tests:
-    runs-on: ubuntu-latest
-    needs: build_and_validate
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-
-      - name: Load Docker Image from GHCR for testing
-        run: |
-          IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
-          VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
-          
-          echo "Attempting to pull image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
-          docker pull "${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}" || \
-          (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
-          { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
-          echo "Image pulled successfully."
-
-
       - name: Run Single Container Tests
         run: |
-          IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
-          VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
+          IMAGE_FULL_NAME=$(echo "${{ steps.set_image_name.outputs.full_image_name }}" | tr -d '\n')
+          VERSION_TAG_WITH_V="v$(echo "${{ env.VERSION_TAG }}" | tr -d '\n')"
 
           echo "Running container with image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
           docker run -d -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} --name test-app ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}
@@ -197,36 +154,21 @@ jobs:
         run: |
           docker stop test-app && docker rm test-app || true
 
+  # Stage 3: 3-Tier Stack Testing
   three_tier_tests:
     runs-on: ubuntu-latest
-    needs: 
-      - single_container_tests
-      - build_and_validate
+    needs: build_and_test_app # תלוי בשלב 2
     env:
-      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }}
+      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_test_app.outputs.new_tag }}
+      FULL_IMAGE_NAME: ${{ needs.build_and_test_app.outputs.full_image_name }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Set lowercase image name
-        id: set_image_name_for_compose
-        run: |
-          REPO_OWNER_LOWERCASE=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          REPO_NAME_LOWERCASE=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          FULL_IMAGE_NAME="ghcr.io/$REPO_OWNER_LOWERCASE/$REPO_NAME_LOWERCASE"
-          echo "full_image_name=$FULL_IMAGE_NAME" >> $GITHUB_OUTPUT
-
       - name: Inject dynamic image tag into docker-compose.yml
         run: |
-          VERSION_TAG_RAW="${{ env.BUILD_VALIDATE_NEW_TAG }}"
-          
-          if [ -z "$VERSION_TAG_RAW" ]; then
-            echo "ERROR: BUILD_VALIDATE_NEW_TAG is empty! Cannot create image tag. Check build_and_validate outputs."
-            exit 1
-          fi
-
-          VERSION_TAG_FOR_COMPOSE="v$(echo "$VERSION_TAG_RAW" | tr -d '\n')"
-          ACTUAL_FULL_IMAGE_TAG="${{ steps.set_image_name_for_compose.outputs.full_image_name }}:${VERSION_TAG_FOR_COMPOSE}"
+          VERSION_TAG_FOR_COMPOSE="v$(echo "${{ env.BUILD_VALIDATE_NEW_TAG }}" | tr -d '\n')"
+          ACTUAL_FULL_IMAGE_TAG="${{ env.FULL_IMAGE_NAME }}:${VERSION_TAG_FOR_COMPOSE}"
           echo "Attempting to replace YOUR_APP_IMAGE_PLACEHOLDER with: ${ACTUAL_FULL_IMAGE_TAG}"
           sed -i "s|YOUR_APP_IMAGE_PLACEHOLDER|${ACTUAL_FULL_IMAGE_TAG}|g" docker-compose/docker-compose.yml
 
@@ -243,57 +185,6 @@ jobs:
           echo "Attempting to pull the image directly for verification..."
           docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
           echo "Direct pull of $IMAGE_TAG_USED succeeded."
-
-      - name: Debug Dockerfile path
-        working-directory: ./docker-compose
-        run: |
-          echo "Current working directory within docker-compose step:"
-          pwd
-          echo "Contents of the current directory (docker-compose/):"
-          ls -F
-          echo "Contents of the parent directory (repository root):"
-          ls -F ..
-          echo "Checking if Dockerfile exists in parent directory from here:"
-          test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in parent directory!"
-          echo "Checking if Dockerfile exists in current directory from here (not expected):"
-          test -f Dockerfile && echo "✓ Dockerfile found in current directory (unexpected)" || echo "✗ Dockerfile NOT found in current directory!"
-          
-          echo "--- Checking Dockerfile size and content on the runner ---"
-          if [ -f ../Dockerfile ]; then
-            echo "Size of Dockerfile: $(du -b ../Dockerfile | awk '{print $1}') bytes"
-            echo "First 100 characters of Dockerfile:"
-            head -c 100 ../Dockerfile
-            echo ""
-            echo "Last 100 characters of Dockerfile:"
-            tail -c 100 ../Dockerfile
-            echo ""
-            echo "Full content of Dockerfile:"
-            cat ../Dockerfile
-          else
-            echo "Dockerfile does not exist at ../Dockerfile to inspect content."
-          fi
-          echo "---------------------------------------------------------"
-
-          # *** NEW DEBUGGING FOR init.sql ***
-          echo "--- Checking init.sql path and content on the runner ---"
-          if [ -f ../src/init.sql ]; then
-            echo "✓ init.sql found at ../src/init.sql"
-            echo "Size of init.sql: $(du -b ../src/init.sql | awk '{print $1}') bytes"
-            echo "File type of init.sql: $(file ../src/init.sql)"
-            echo "Permissions of init.sql: $(ls -l ../src/init.sql | awk '{print $1}')"
-            echo "Encoding of init.sql: $(file -i ../src/init.sql | sed 's/.*charset=\([^;]*\).*/\1/')"
-            echo "First 100 characters of init.sql:"
-            head -c 100 ../src/init.sql
-            echo ""
-            echo "Last 100 characters of init.sql:"
-            tail -c 100 ../src/init.sql
-            echo ""
-            echo "Full content of init.sql (with special characters visible):"
-            cat -vET ../src/init.sql # Displays non-printable characters
-          else
-            echo "✗ init.sql NOT found at ../src/init.sql to inspect content."
-          fi
-          echo "------------------------------------------------------"
 
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
@@ -323,7 +214,7 @@ jobs:
           docker compose logs app
           echo "--- db container logs ---"
           docker compose logs db
-          echo "--- nginx container logs ---" # Changed from docker compose logs nginx to echo "--- nginx container logs ---"
+          echo "--- nginx container logs ---"
           docker compose logs nginx
           echo "--- docker compose ps -a ---"
           docker compose ps -a
@@ -336,10 +227,244 @@ jobs:
         run: |
           docker compose down -v || true
 
-  publish:
+  # Stage 4: Publish (Image already pushed in build_and_test_app, this is just for clarity)
+  publish_image:
     runs-on: ubuntu-latest
-    needs: three_tier_tests # תלוי בבדיקות ה-3-שכבתיות
-    if: github.ref == 'refs/heads/main'
+    needs: three_tier_tests # תלוי בשלב 3 - רק אם כל הבדיקות עברו
+    if: github.ref == 'refs/heads/main' # רק אם זה פוש לענף הראשי
     steps:
-      - name: All previous steps completed, image already published.
-        run: echo "Image was already built and pushed in the 'build_and_validate' job."
+      - name: Image already built and pushed in 'build_and_test_app' job
+        run: echo "Final image with semantic version and 'latest' tag was already pushed to GHCR in the 'build_and_test_app' job."
+
+  # Stage 5: Kubernetes Deployment Testing
+  kubernetes_deployment_testing:
+    runs-on: ubuntu-latest
+    needs: publish_image # תלוי בשלב 4 - רק אם האימג' פורסם
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Kind Cluster
+        uses: kubernetes-sigs/kind@v1.2.0
+        with:
+          node_image: kindest/node:v1.28.0 # גרסת Kind Node image
+
+      - name: Load Docker Image into Kind Cluster
+        run: |
+          IMAGE_FULL_NAME="${{ needs.build_and_test_app.outputs.full_image_name }}"
+          VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
+          FULL_IMAGE_TAG="${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          echo "Loading image ${FULL_IMAGE_TAG} into Kind cluster..."
+          kind load docker-image "${FULL_IMAGE_TAG}" || { echo "ERROR: Failed to load image into Kind cluster!"; exit 1; }
+          echo "Image loaded successfully."
+
+      - name: Inject dynamic image tag into workprofile-deployment.yaml for K8s testing
+        run: |
+          IMAGE_FULL_NAME="${{ needs.build_and_test_app.outputs.full_image_name }}"
+          VERSION_TAG_WITH_V="v${{ needs.build_and_test_app.outputs.new_tag }}"
+          ACTUAL_FULL_IMAGE_TAG="${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          echo "Replacing YOUR_APP_IMAGE_PLACEHOLDER with: ${ACTUAL_FULL_IMAGE_TAG}"
+          sed -i "s|YOUR_APP_IMAGE_PLACEHOLDER|${ACTUAL_FULL_IMAGE_TAG}|g" k8s/workprofile-deployment.yaml
+          cat k8s/workprofile-deployment.yaml # הדפסה לדיבוג
+
+      - name: Deploy MySQL Components
+        run: |
+          kubectl apply -f k8s/mysql-secret.yaml
+          kubectl create configmap mysql-initdb-script --from-file=src/init.sql # יצירת ConfigMap מ-src/init.sql
+          kubectl apply -f k8s/mysql-service-headless.yaml
+          kubectl apply -f k8s/mysql-service-clusterip.yaml
+          kubectl apply -f k8s/mysql-statefulset.yaml
+          kubectl wait --for=condition=ready pod/mysql-0 --timeout=600s || { echo "ERROR: MySQL pod did not become ready!"; kubectl describe pod mysql-0; kubectl logs mysql-0; exit 1; }
+          echo "✓ MySQL deployed and ready."
+
+      - name: Deploy WorkProfile Components
+        run: |
+          kubectl apply -f k8s/workprofile-configmap.yaml
+          kubectl apply -f k8s/workprofile-deployment.yaml # שימוש בקובץ ששונה
+          kubectl apply -f k8s/workprofile-service.yaml
+          kubectl wait --for=condition=available deployment/workprofile --timeout=600s || { echo "ERROR: WorkProfile deployment did not become available!"; kubectl describe deployment workprofile; kubectl logs deployment/workprofile; exit 1; }
+          echo "✓ WorkProfile deployed and available."
+
+      - name: Run Kubernetes Application Tests
+        run: |
+          NODE_PORT=$(kubectl get service workprofile-service -o jsonpath='{.spec.ports[0].nodePort}')
+          echo "WorkProfile NodePort: $NODE_PORT"
+
+          # ב-Kind, ה-Node IP הוא בדרך כלל ה-IP של נוד ה-control-plane של Kind
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          echo "Node IP: $NODE_IP"
+
+          # המתן רגע כדי שהשירותים יהיו חשופים במלואם
+          sleep 10
+
+          curl -f http://$NODE_IP:$NODE_PORT/ && echo "✓ Kubernetes app works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
+          curl -f http://$NODE_IP:$NODE_PORT/health && echo "✓ Kubernetes health works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
+          curl -s http://$NODE_IP:$NODE_PORT/health | grep "Application: Healthy" && echo "✓ Kubernetes database works (via app health)" || { echo "ERROR: Database health check failed!"; exit 1; }
+          echo "✓ All Kubernetes application tests passed."
+
+      - name: Cleanup Kubernetes Cluster
+        if: always()
+        run: |
+          kind delete cluster || true
+          echo "Kind cluster deleted."
+
+  # Stage 6: Manual Deployment Instructions
+  manual_deployment_instructions:
+    runs-on: ubuntu-latest
+    needs: kubernetes_deployment_testing # תלוי בשלב 5 - רק אם בדיקות K8s עברו
+    steps:
+      - name: Provide Manual Deployment Instructions for Killer Koda
+        run: |
+          echo "## Manual Deployment Instructions for Killer Koda"
+          echo ""
+          echo "These instructions guide you through deploying your WorkProfile application to a Killer Koda environment."
+          echo "They assume your GitHub repository is up-to-date with the latest code and Kubernetes manifests."
+          echo ""
+          echo "### Preparation before you start:"
+          echo "1.  Ensure all YAML files in your `k8s/` directory are up-to-date and match the latest versions pushed to GitHub."
+          echo "    - `k8s/mysql-secret.yaml`"
+          echo "    - `k8s/mysql-service-headless.yaml`"
+          echo "    - `k8s/mysql-service-clusterip.yaml`"
+          echo "    - `k8s/mysql-statefulset.yaml`"
+          echo "    - `k8s/workprofile-configmap.yaml`"
+          echo "    - `k8s/workprofile-deployment.yaml` (with the `YOUR_APP_IMAGE_PLACEHOLDER`)"
+          echo "    - `k8s/workprofile-service.yaml`"
+          echo "    - `src/init.sql` (the source file for the DB initialization script)"
+          echo "2.  Ensure the latest CI/CD pipeline run on GitHub Actions (this pipeline!) has completed successfully."
+          echo "    This confirms your application image is in GitHub Container Registry (GHCR)."
+          echo ""
+          echo "### Manual Deployment Steps in Killer Koda Terminal:"
+          echo ""
+          echo "1.  **Connect and Clone Project (Clean Start):**"
+          echo "    * Refresh your Killer Koda page and open a new terminal."
+          echo "    * Navigate to your home directory:"
+          echo "        ```bash"
+          echo "        cd ~"
+          echo "        ```"
+          echo "    * Remove the old project directory (if it exists) for a completely clean start:"
+          echo "        ```bash"
+          echo "        rm -rf WorkProfile"
+          echo "        ```"
+          echo "    * Clone your GitHub repository:"
+          echo "        ```bash"
+          echo "        git clone [https://github.com/Esti-Atias/WorkProfile.git](https://github.com/Esti-Atias/WorkProfile.git)"
+          echo "        ```"
+          echo "        *(Replace the URL if your username/repository name is different)*"
+          echo "    * Navigate to the cloned project directory:"
+          echo "        ```bash"
+          echo "        cd WorkProfile"
+          echo "        ```"
+          echo "    * Navigate to the `k8s` directory:"
+          echo "        ```bash"
+          echo "        cd k8s"
+          echo "        ```"
+          echo "        *(You should now be in the `~/WorkProfile/k8s` path in the terminal)*"
+          echo ""
+          echo "2.  **Get the Exact Image Name from GitHub Actions:**"
+          echo "    * Go to GitHub, to the \"Actions\" tab in your repository."
+          echo "    * Select the latest successful run of the CI/CD pipeline (the `build_and_test_app` job should be green)."
+          echo "    * Inside the `build_and_test_app` job, find the step named \"Verify image exists in GHCR after push\"."
+          echo "    * **Copy the full and exact image name** (e.g., `ghcr.io/esti-atias/workprofile:v1.0.0` or `v1.0.1` etc.). Keep this name handy."
+          echo ""
+          echo "3.  **Replace the Placeholder in `k8s/workprofile-deployment.yaml` Temporarily:**"
+          echo "    * In the Killer Koda terminal (while in `~/WorkProfile/k8s`), run the following command:"
+          echo "        ```bash"
+          echo "        IMAGE_TO_DEPLOY=\"ghcr.io/your-github-username/your-repo-name:vX.Y.Z\" # ***PASTE YOUR ACTUAL COPIED IMAGE NAME HERE!***"
+          echo "        sed \"s|YOUR_APP_IMAGE_PLACEHOLDER|\$IMAGE_TO_DEPLOY|g\" workprofile-deployment.yaml > workprofile-deployment-temp.yaml"
+          echo "        ```"
+          echo "        *(Verify the pasted image name is correct. A temporary file `workprofile-deployment-temp.yaml` will be created)*"
+          echo ""
+          echo "4.  **Clean Up and Redeploy All Resources (Clean Start in Cluster):**"
+          echo "    * Ensure your cluster is clean from any previous deployments:"
+          echo "        ```bash"
+          echo "        kubectl delete -f mysql-secret.yaml || true"
+          echo "        kubectl delete -f mysql-service-headless.yaml || true"
+          echo "        kubectl delete -f mysql-service-clusterip.yaml || true"
+          echo "        kubectl delete -f mysql-statefulset.yaml || true"
+          echo "        kubectl delete -f workprofile-configmap.yaml || true"
+          echo "        kubectl delete -f workprofile-service.yaml || true"
+          echo "        kubectl delete -f workprofile-deployment-temp.yaml || true"
+          echo "        kubectl delete pvc mysql-persistent-storage-mysql-0 || true"
+          echo "        kubectl delete configmap mysql-initdb-script || true"
+          echo "        rm workprofile-deployment-temp.yaml || true"
+          echo "        ```"
+          echo "        *(Verify all `delete` commands complete successfully or report `NotFound`)*"
+          echo ""
+          echo "5.  **Deploy Database Infrastructure (MySQL):**"
+          echo "    * Deploy the MySQL Secret:"
+          echo "        ```bash"
+          echo "        kubectl apply -f mysql-secret.yaml"
+          echo "        ```"
+          echo "    * Create the ConfigMap for the DB initialization script from the `src/init.sql` source file:"
+          echo "        ```bash"
+          echo "        kubectl create configmap mysql-initdb-script --from-file=../src/init.sql"
+          echo "        ```"
+          echo "    * Deploy the MySQL Headless Service:"
+          echo "        ```bash"
+          echo "        kubectl apply -f mysql-service-headless.yaml"
+          echo "        ```"
+          echo "    * Deploy the MySQL ClusterIP Service:"
+          echo "        ```bash"
+          echo "        kubectl apply -f mysql-service-clusterip.yaml"
+          echo "        ```"
+          echo "    * Deploy the MySQL StatefulSet:"
+          echo "        ```bash"
+          echo "        kubectl apply -f mysql-statefulset.yaml"
+          echo "        ```"
+          echo "    * **Wait for the MySQL Pod to be Ready:**"
+          echo "        ```bash"
+          echo "        kubectl wait --for=condition=ready pod/mysql-0 --timeout=600s"
+          echo "        ```"
+          echo "        *(Wait patiently for `pod/mysql-0 condition met` message)*"
+          echo ""
+          echo "6.  **Deploy Application Infrastructure (WorkProfile):**"
+          echo "    * Deploy the WorkProfile ConfigMap:"
+          echo "        ```bash"
+          echo "        kubectl apply -f workprofile-configmap.yaml"
+          echo "        ```"
+          echo "    * Deploy the WorkProfile Deployment (using the temporary file):"
+          echo "        ```bash"
+          echo "        kubectl apply -f workprofile-deployment-temp.yaml"
+          echo "        ```"
+          echo "    * Deploy the WorkProfile NodePort Service:"
+          echo "        ```bash"
+          echo "        kubectl apply -f workprofile-service.yaml"
+          echo "        ```"
+          echo "    * **Wait for the WorkProfile Deployment to be Available:**"
+          echo "        ```bash"
+          echo "        kubectl wait --for=condition=available deployment/workprofile --timeout=600s"
+          echo "        ```"
+          echo "        *(Wait patiently for `deployment.apps/workprofile condition met` message)*"
+          echo ""
+          echo "7.  **Verify Application Functionality in Killer Koda (through Browser):**"
+          echo "    * Ensure `kubectl port-forward --address 0.0.0.0 deployment/workprofile 5000:5000 &` is running in your Killer Koda terminal."
+          echo "    * **Access the application via the Killer Koda 'Traffic Port Accessor' (Web/Ports tab):**"
+          echo "        * In the 'Traffic Port Accessor' interface, locate the 'Custom Ports' section."
+          echo "        * Type `5000` into the text box next to the 'Access' button."
+          echo "        * Click the 'Access' button. A new browser tab should open with your application."
+          echo "    * **Verify the application loads:** You should see the homepage with the initial list of people (John, Jane, Jack Doe)."
+          echo "    * **Test adding a new person:** Click 'Add Person', fill in details, and submit. Verify the new person appears."
+          echo "    * **Test deleting a person:** Click on an existing person (if UI supports it) to confirm deletion works."
+          echo ""
+          echo "8.  **Clean Up Kubernetes Resources (After Testing):**"
+          echo "    * **First, kill the `port-forward` process:**"
+          echo "        ```bash"
+          echo "        kill \$FORWARD_PID"
+          echo "        ```"
+          echo "    * Then, delete all created resources:"
+          echo "        ```bash"
+          echo "        kubectl delete -f mysql-secret.yaml || true"
+          echo "        kubectl delete -f mysql-service-headless.yaml || true"
+          echo "        kubectl delete -f mysql-service-clusterip.yaml || true"
+          echo "        kubectl delete -f mysql-statefulset.yaml || true"
+          echo "        kubectl delete -f workprofile-configmap.yaml || true"
+          echo "        kubectl delete -f workprofile-service.yaml || true"
+          echo "        kubectl delete -f workprofile-deployment-temp.yaml || true"
+          echo "        kubectl delete pvc mysql-persistent-storage-mysql-0 || true"
+          echo "        kubectl delete configmap mysql-initdb-script || true"
+          echo "        rm workprofile-deployment-temp.yaml || true"
+          echo "        ```"
+          echo "        *(Verify all `delete` commands complete successfully or report `NotFound`)*"
+          echo ""
+          echo "---"
+          echo "Upon successful completion of all these steps, Part 5 will be fully accomplished!"
