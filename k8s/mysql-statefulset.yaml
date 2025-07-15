@@ -14,6 +14,7 @@ spec:
         app: mysql
     spec:
       # NEW: Add securityContext at the pod level for volume permissions
+      # This is crucial for MySQL to write to its persistent volume.
       securityContext:
         fsGroup: 999 # Sets the primary group ID for all containers in the pod to 'mysql' user's GID
       containers:

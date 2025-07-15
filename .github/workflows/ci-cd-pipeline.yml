@@ -578,7 +578,7 @@ jobs:
           echo "        ```"
           echo "        *(Wait patiently for `deployment.apps/workprofile condition met` message)*"
           echo ""
-          echo "7.  **Verify Application Functionality in Killer Koda (through Browser):"
+          echo "7.  **Verify Application Functionality in Killer Koda (through Browser):**"
           echo "    * Ensure `kubectl port-forward --address 0.0.0.0 deployment/workprofile 5000:5000 &` is running in your Killer Koda terminal."
           echo "    * **Access the application via the Killer Koda 'Traffic Port Accessor' (Web/Ports tab):**"
           echo "        * In the 'Traffic Port Accessor' interface, locate the 'Custom Ports' section."
