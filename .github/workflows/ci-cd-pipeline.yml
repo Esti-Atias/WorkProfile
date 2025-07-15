@@ -245,7 +245,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Kind Cluster
-        uses: kubernetes-sigs/kind-action@v1 # ***התיקון כאן: שינוי מ-kubernetes-sigs/kind@v1 ל-kubernetes-sigs/kind-action@v1***
+        uses: helm/kind-action@v1.5.0 # ***התיקון כאן: שינוי ל-helm/kind-action@v1.5.0***
         with:
           node_image: kindest/node:v1.28.0 # גרסת Kind Node image
 
@@ -441,30 +441,28 @@ jobs:
           echo "    * **Access the application via the Killer Koda 'Traffic Port Accessor' (Web/Ports tab):**"
           echo "        * In the 'Traffic Port Accessor' interface, locate the 'Custom Ports' section."
           echo "        * Type `5000` into the text box next to the 'Access' button."
-          echo "        * Click the 'Access' button. A new browser tab should open with your application."
-          echo "    * **Verify the application loads:** You should see the homepage with the initial list of people (John, Jane, Jack Doe)."
-          echo "    * **Test adding a new person:** Click 'Add Person', fill in details, and submit. Verify the new person appears."
-          echo "    * **Test deleting a person:** Click on an existing person (if UI supports it) to confirm deletion works."
-          echo ""
-          echo "8.  **Clean Up Kubernetes Resources (After Testing):**"
-          echo "    * **First, kill the `port-forward` process:**"
-          echo "        ```bash"
-          echo "        kill \$FORWARD_PID"
-          echo "        ```"
-          echo "    * Then, delete all created resources:"
-          echo "        ```bash"
-          echo "        kubectl delete -f mysql-secret.yaml || true"
-          echo "        kubectl delete -f mysql-service-headless.yaml || true"
-          echo "        kubectl delete -f mysql-service-clusterip.yaml || true"
-          echo "        kubectl delete -f mysql-statefulset.yaml || true"
-          echo "        kubectl delete -f workprofile-configmap.yaml || true"
-          echo "        kubectl delete -f workprofile-service.yaml || true"
-          echo "        kubectl delete -f workprofile-deployment-temp.yaml || true"
-          echo "        kubectl delete pvc mysql-persistent-storage-mysql-0 || true"
-          echo "        kubectl delete configmap mysql-initdb-script || true"
-          echo "        rm workprofile-deployment-temp.yaml || true"
-          echo "        ```"
-          echo "        *(Verify all `delete` commands complete successfully or report `NotFound`)*"
-          echo ""
-          echo "---"
-          echo "Upon successful completion of all these steps, Part 5 will be fully accomplished!"
+          * Click the 'Access' button. A new browser tab should open with your application."
+          * **Verify the application loads:** You should see the homepage with the initial list of people (John, Jane, Jack Doe)."
+          * **Test adding a new person:** Click 'Add Person', fill in details, and submit. Verify the new person appears."
+          * **Test deleting a person:** Click on an existing person (if UI supports it) to confirm deletion works."
+          * **Clean Up Kubernetes Resources (After Testing):**
+          * **First, kill the `port-forward` process:**
+          ```bash
+          kill \$FORWARD_PID
+          ```
+          * Then, delete all created resources:"
+          ```bash
+          kubectl delete -f mysql-secret.yaml || true
+          kubectl delete -f mysql-service-headless.yaml || true
+          kubectl delete -f mysql-service-clusterip.yaml || true
+          kubectl delete -f mysql-statefulset.yaml || true
+          kubectl delete -f workprofile-configmap.yaml || true
+          kubectl delete -f workprofile-service.yaml || true
+          kubectl delete -f workprofile-deployment-temp.yaml || true
+          kubectl delete pvc mysql-persistent-storage-mysql-0 || true
+          kubectl delete configmap mysql-initdb-script || true
+          rm workprofile-deployment-temp.yaml || true
+          ```
+          *(Verify all `delete` commands complete successfully or report `NotFound`)*"
+          "---"
+          "Upon successful completion of all these steps, Part 5 will be fully accomplished!"
