@@ -13,25 +13,44 @@ spec:
       labels:
         app: mysql
     spec:
-      # This security context ensures the volume is owned by the mysql group
+      # NEW: Add securityContext at the pod level for volume permissions
+      # This is crucial for MySQL to write to its persistent volume.
       securityContext:
-        fsGroup: 999 
+        fsGroup: 999 # Sets the primary group ID for all containers in the pod to 'mysql' user's GID
+      initContainers: # InitContainer חדש לאתחול בטוח של בסיס הנתונים
+        - name: init-database-schema
+          image: mysql:8.0 # השתמש באותו אימג' של MySQL
+          command: ["sh", "-c"]
+          args:
+            - |
+              # המתן עד ששרת ה-MySQL יהיה זמין בפורט 3306 (בדיקה רשתית)
+              until mysql -h 127.0.0.1 -P 3306 -u root -p${MYSQL_ROOT_PASSWORD} -e "SELECT 1"; do
+                echo "Waiting for MySQL server to be available on port 3306...";
+                sleep 5;
+              done;
+              echo "MySQL server is available. Running init script...";
+              # הרץ את סקריפט ה-SQL מה-ConfigMap
+              mysql -u root -p${MYSQL_ROOT_PASSWORD} < /etc/mysql-init/init.sql;
+              echo "MySQL init script completed.";
+          envFrom:
+            - secretRef:
+                name: mysql-secret # קבל את הסיסמה מה-Secret
+          volumeMounts:
+            - name: mysql-initdb-volume
+              mountPath: /etc/mysql-init # נתיב חדש לקובץ ה-init.sql מה-ConfigMap
       containers:
         - name: mysql
-          image: mysql:8.0
+          image: mysql:8.0 # Keeping MySQL 8.0 as requested
           ports:
             - containerPort: 3306
               name: mysql
           envFrom:
             - secretRef:
-                name: mysql-secret
+                name: mysql-secret # שימוש ב-Secret עבור משתני סביבה
           volumeMounts:
-            # Mount the persistent volume to the data directory
             - name: mysql-persistent-storage
               mountPath: /var/lib/mysql
-            # Mount the init script from the ConfigMap to the correct init directory
-            - name: mysql-initdb-volume
-              mountPath: /docker-entrypoint-initdb.d
+            # הסרנו את ה-volumeMount הישן ל-init.sql כאן מהקונטיינר הראשי
           resources:
             requests:
               memory: "512Mi"
@@ -41,26 +60,38 @@ spec:
               cpu: "500m"
           livenessProbe:
             exec:
+              # Using MYSQL_ROOT_PASSWORD for mysqladmin ping
               command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-            initialDelaySeconds: 45
+            initialDelaySeconds: 90 # Increased from 60
             periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
           readinessProbe:
             exec:
+              # Using MYSQL_ROOT_PASSWORD for mysqladmin ping
               command: ["mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-            initialDelaySeconds: 15
-            periodSeconds: 5
-      volumes:
-        # Define the volume from the ConfigMap
-        - name: mysql-initdb-volume
+            initialDelaySeconds: 120 # Increased from 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          # NEW: Add securityContext to the container itself to run as 'mysql' user
+          securityContext:
+            runAsUser: 999 # Runs the container as the 'mysql' user (UID 999)
+      volumes: # This is still under spec.template.spec.volumes
+        - name: mysql-persistent-storage
+          persistentVolumeClaim:
+            claimName: mysql-persistent-storage-mysql-0
+        - name: mysql-initdb-volume # Volume definition for the init script ConfigMap
           configMap:
-            name: mysql-initdb-script
-  # Let the StatefulSet manage the Persistent Volume Claim creation
+            name: mysql-initdb-script # שם ה-ConfigMap החדש שיכיל את init.sql
   volumeClaimTemplates:
     - metadata:
         name: mysql-persistent-storage
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: "standard" # Explicitly use the default class for kind
         resources:
           requests:
             storage: 2Gi
+

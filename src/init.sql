@@ -1,10 +1,7 @@
 CREATE DATABASE IF NOT EXISTS `exampleDb`;
 
-CREATE USER 'flaskapp'@'%' IDENTIFIED BY 'flaskapp';
-GRANT ALL PRIVILEGES ON `exampleDb`.* TO 'flaskapp'@'%';
-FLUSH PRIVILEGES;
+USE exampleDb;
 
-USE `exampleDb`;
 
 CREATE TABLE IF NOT EXISTS `people` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -15,7 +12,8 @@ CREATE TABLE IF NOT EXISTS `people` (
   `workplace` varchar(100) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=10001; -- Changed to InnoDB which is standard
+) ENGINE=MyISAM AUTO_INCREMENT=10001;
+
 
 INSERT INTO `people` (`firstname`, `lastname`, `age`, `address`, `workplace`) VALUES
 ('John', 'Doe', 30, '123 Main St, New York, NY 10030', 'Google'),
