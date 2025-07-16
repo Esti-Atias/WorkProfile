@@ -1,5 +1,9 @@
 CREATE DATABASE IF NOT EXISTS `exampleDb`;
-GRANT ALL PRIVILEGES ON `exampleDb` TO 'flaskapp'@'%' IDENTIFIED BY 'flaskapp' WITH GRANT OPTION;
+
+CREATE USER IF NOT EXISTS 'flaskapp'@'%' IDENTIFIED WITH mysql_native_password BY 'flaskapp';
+
+GRANT ALL PRIVILEGES ON `exampleDb`.* TO 'flaskapp'@'%' WITH GRANT OPTION;
+
 FLUSH PRIVILEGES;
 
 USE exampleDb;
@@ -14,7 +18,6 @@ CREATE TABLE IF NOT EXISTS `people` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `id` (`id`)
 ) ENGINE=MyISAM AUTO_INCREMENT=10001;
-
 
 INSERT INTO `people` (`firstname`, `lastname`, `age`, `address`, `workplace`) VALUES
 ('John', 'Doe', 30, '123 Main St, New York, NY 10030', 'Google'),
