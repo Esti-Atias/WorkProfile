@@ -1,9 +1,7 @@
 CREATE DATABASE IF NOT EXISTS `exampleDb`;
 
-CREATE USER IF NOT EXISTS 'flaskapp'@'%' IDENTIFIED WITH mysql_native_password BY 'flaskapp';
-
-GRANT ALL PRIVILEGES ON `exampleDb`.* TO 'flaskapp'@'%' WITH GRANT OPTION;
-
+CREATE USER IF NOT EXISTS 'flaskapp'@'%' IDENTIFIED BY 'flaskapp';
+GRANT ALL PRIVILEGES ON `exampleDb`.* TO 'flaskapp'@'%';
 FLUSH PRIVILEGES;
 
 USE exampleDb;
