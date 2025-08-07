@@ -202,7 +202,7 @@ jobs:
 
   kubernetes_deployment_testing:
     runs-on: ubuntu-latest
-    needs: [build_and_validate, three_tier_tests]
+    needs: [build_and_validate, three_tier_tests] # שינוי: הוספת build_and_validate ל-needs
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -242,7 +242,7 @@ jobs:
         run: |
           echo "Deploying MySQL components..."
           kubectl apply -f k8s/mysql-secret.yaml
-          kubectl create configmap mysql-initdb-script --from-file=src/init.sql
+          kubectl create configmap mysql-initdb-script --from-file=../src/init.sql
           kubectl apply -f k8s/mysql-service-headless.yaml
           kubectl apply -f k8s/mysql-service-clusterip.yaml
           kubectl apply -f k8s/mysql-statefulset.yaml
