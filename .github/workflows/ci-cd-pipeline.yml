@@ -21,7 +21,7 @@ env:
   NGINX_PORT: 8080
 
 jobs:
-  # Stage 1 & 2: Basic Validation and Build (Combined for efficiency)
+  # Stage 1 & 2: Basic Validation, Build and Test Application (Combined for efficiency)
   build_and_validate:
     runs-on: ubuntu-latest
     permissions:
@@ -40,7 +40,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pytest flake8
 
       - name: Run Basic Validation Tests
         run: |
@@ -54,6 +54,12 @@ jobs:
           test -f docker-compose/nginx.conf && echo "✓ nginx.conf exists" || { echo "ERROR: nginx.conf missing!"; exit 1; }
           test -f src/init.sql && echo "✓ src/init.sql exists" || { echo "ERROR: src/init.sql missing!"; exit 1; }
           echo "✅ Basic Validation Passed"
+
+      - name: Run Unit Tests
+        run: |
+          echo "=== Running Unit Tests ==="
+          pytest --disable-warnings tests/test_app.py || (echo "❌ Unit tests failed" && exit 1)
+          echo "✅ Unit tests passed"
 
       - name: Set lowercase image name
         id: set_image_name
