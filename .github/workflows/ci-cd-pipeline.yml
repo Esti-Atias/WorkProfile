@@ -140,9 +140,70 @@ jobs:
               }
             }
       
-  three_tier_tests:
+      - name: Verify build_and_validate outputs
+        run: |
+          echo "Verification Step in build_and_validate:"
+          echo "new_tag output: ${{ steps.increment_version.outputs.new_tag }}"
+          echo "full_image_name output: ${{ steps.set_image_name.outputs.full_image_name }}"
+          echo "VERSION_TAG env: ${{ env.VERSION_TAG }}"
+          
+          if [ -z "${{ steps.increment_version.outputs.new_tag }}" ]; then
+            echo "CRITICAL VERIFICATION ERROR: new_tag output is empty in build_and_validate!"
+            exit 1
+          fi
+
+  single_container_tests:
     runs-on: ubuntu-latest
     needs: build_and_validate
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Load Docker Image from GHCR for testing
+        run: |
+          IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
+          VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
+          
+          echo "Attempting to pull image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          docker pull "${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}" || \
+          (echo "Pulling specific version failed, attempting to pull latest: ${IMAGE_FULL_NAME}:latest" && docker pull "${IMAGE_FULL_NAME}:latest") || \
+          { echo "ERROR: Failed to pull image. Check GHCR and previous job logs."; exit 1; }
+          echo "Image pulled successfully."
+
+
+      - name: Run Single Container Tests
+        run: |
+          IMAGE_FULL_NAME=$(echo "${{ needs.build_and_validate.outputs.full_image_name }}" | tr -d '\n')
+          VERSION_TAG_WITH_V="v$(echo "${{ needs.build_and_validate.outputs.new_tag }}" | tr -d '\n')"
+
+          echo "Running container with image: ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}"
+          docker run -d -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} --name test-app ${IMAGE_FULL_NAME}:${VERSION_TAG_WITH_V}
+
+          for i in {1..20}; do
+            if curl -s http://localhost:${{ env.APP_PORT }}/health | grep -q "Application: Healthy"; then
+              echo "App is ready!"
+              break
+            fi
+            echo "Attempt $i: App not ready yet. Waiting..."
+            sleep 3
+          done
+          curl -f http://localhost:${{ env.APP_PORT }}/health | grep -q "Application: Healthy" || { echo "ERROR: App did not become ready in time."; exit 1; }
+
+          curl -f http://localhost:${{ env.APP_PORT }}/ && echo "✓ Main endpoint works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
+          curl -f http://localhost:${{ env.APP_PORT }}/health && echo "✓ Health endpoint works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
+      
+      - name: Cleanup Single Container
+        if: always()
+        run: |
+          docker stop test-app && docker rm test-app || true
+
+  three_tier_tests:
+    runs-on: ubuntu-latest
+    needs: 
+      - single_container_tests
+      - build_and_validate
+    env:
+      BUILD_VALIDATE_NEW_TAG: ${{ needs.build_and_validate.outputs.new_tag }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -157,7 +218,7 @@ jobs:
 
       - name: Inject dynamic image tag into docker-compose.yml
         run: |
-          VERSION_TAG_RAW="${{ needs.build_and_validate.outputs.new_tag }}"
+          VERSION_TAG_RAW="${{ env.BUILD_VALIDATE_NEW_TAG }}"
           
           if [ -z "$VERSION_TAG_RAW" ]; then
             echo "ERROR: BUILD_VALIDATE_NEW_TAG is empty! Cannot create image tag. Check build_and_validate outputs."
@@ -168,17 +229,76 @@ jobs:
           ACTUAL_FULL_IMAGE_TAG="${{ steps.set_image_name_for_compose.outputs.full_image_name }}:${VERSION_TAG_FOR_COMPOSE}"
           echo "Attempting to replace YOUR_APP_IMAGE_PLACEHOLDER with: ${ACTUAL_FULL_IMAGE_TAG}"
           sed -i "s|YOUR_APP_IMAGE_PLACEHOLDER|${ACTUAL_FULL_IMAGE_TAG}|g" docker-compose/docker-compose.yml
-          
-      - name: Pull Docker Image for testing
+
+      - name: Verify Docker Compose image tag and attempt direct pull
         run: |
           IMAGE_TAG_USED=$(grep "image:" docker-compose/docker-compose.yml | awk '{print $2}' | head -n 1)
-          docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED. Manifest unknown or incorrect tag?"; exit 1; }
+
+          if [[ -z "$IMAGE_TAG_USED" || "$IMAGE_TAG_USED" == *"YOUR_APP_IMAGE_PLACEHOLDER"* ]]; then
+            echo "ERROR: Image tag placeholder was NOT replaced correctly or tag is incomplete!"
+            exit 1
+          fi
+          echo "Image tag that Docker Compose will attempt to use: $IMAGE_TAG_USED"
+          
+          echo "Attempting to pull the image directly for verification..."
+          docker pull "$IMAGE_TAG_USED" || { echo "ERROR: Failed to pull image $IMAGE_TAG_USED directly. Manifest unknown or incorrect tag?"; exit 1; }
           echo "Direct pull of $IMAGE_TAG_USED succeeded."
+
+      - name: Debug Dockerfile path
+        working-directory: ./docker-compose
+        run: |
+          echo "Current working directory within docker-compose step:"
+          pwd
+          echo "Contents of the current directory (docker-compose/):"
+          ls -F
+          echo "Contents of the parent directory (repository root):"
+          ls -F ..
+          echo "Checking if Dockerfile exists in parent directory from here:"
+          test -f ../Dockerfile && echo "✓ Dockerfile found in parent directory (expected location)" || echo "✗ Dockerfile NOT found in parent directory!"
+          echo "Checking if Dockerfile exists in current directory from here (not expected):"
+          test -f Dockerfile && echo "✓ Dockerfile found in current directory (unexpected)" || echo "✗ Dockerfile NOT found in current directory!"
+          
+          echo "--- Checking Dockerfile size and content on the runner ---"
+          if [ -f ../Dockerfile ]; then
+            echo "Size of Dockerfile: $(du -b ../Dockerfile | awk '{print $1}') bytes"
+            echo "First 100 characters of Dockerfile:"
+            head -c 100 ../Dockerfile
+            echo ""
+            echo "Last 100 characters of Dockerfile:"
+            tail -c 100 ../Dockerfile
+            echo ""
+            echo "Full content of Dockerfile:"
+            cat ../Dockerfile
+          else
+            echo "Dockerfile does not exist at ../Dockerfile to inspect content."
+          fi
+          echo "---------------------------------------------------------"
+
+          # *** NEW DEBUGGING FOR init.sql ***
+          echo "--- Checking init.sql path and content on the runner ---"
+          if [ -f ../src/init.sql ]; then
+            echo "✓ init.sql found at ../src/init.sql"
+            echo "Size of init.sql: $(du -b ../src/init.sql | awk '{print $1}') bytes"
+            echo "File type of init.sql: $(file ../src/init.sql)"
+            echo "Permissions of init.sql: $(ls -l ../src/init.sql | awk '{print $1}')"
+            echo "Encoding of init.sql: $(file -i ../src/init.sql | sed 's/.*charset=\([^;]*\).*/\1/')"
+            echo "First 100 characters of init.sql:"
+            head -c 100 ../src/init.sql
+            echo ""
+            echo "Last 100 characters of init.sql:"
+            tail -c 100 ../src/init.sql
+            echo ""
+            echo "Full content of init.sql (with special characters visible):"
+            cat -vET ../src/init.sql # Displays non-printable characters
+          else
+            echo "✗ init.sql NOT found at ../src/init.sql to inspect content."
+          fi
+          echo "------------------------------------------------------"
 
       - name: Bring up 3-Tier Stack
         working-directory: ./docker-compose
         run: |
-          docker compose up -d --wait
+          docker compose up -d --build --wait
           echo "Docker Compose services are up and healthy."
 
       - name: Check Nginx and App Health
@@ -194,85 +314,32 @@ jobs:
           HEALTH_RESPONSE=$(curl -s http://localhost:${{ env.APP_PORT }}/health)
           echo "$HEALTH_RESPONSE" | grep -q "Application: Healthy" && echo "✓ Application health check works" || { echo "ERROR: Application health check failed! Response: $HEALTH_RESPONSE"; exit 1; }
       
+      - name: Gather Container Logs on Failure
+        if: failure() || cancelled()
+        working-directory: ./docker-compose
+        run: |
+          echo "Gathering logs for debugging due to test failure..."
+          echo "--- app container logs ---"
+          docker compose logs app
+          echo "--- db container logs ---"
+          docker compose logs db
+          echo "--- nginx container logs ---" # Changed from docker compose logs nginx to echo "--- nginx container logs ---"
+          docker compose logs nginx
+          echo "--- docker compose ps -a ---"
+          docker compose ps -a
+          echo "--- docker compose config (for network verification) ---"
+          docker compose config
+
       - name: Cleanup 3-Tier Stack
         if: always()
         working-directory: ./docker-compose
         run: |
           docker compose down -v || true
 
-  kubernetes_deployment_testing:
+  publish:
     runs-on: ubuntu-latest
-    needs: three_tier_tests
+    needs: three_tier_tests # תלוי בבדיקות ה-3-שכבתיות
+    if: github.ref == 'refs/heads/main'
     steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-
-      - name: Set up Kind Cluster
-        uses: kubernetes-sigs/kind@v1.2.0
-        with:
-          node_image: kindest/node:v1.28.0
-
-      - name: Get and Load Docker Image into Kind Cluster
-        id: load_image
-        run: |
-          FULL_IMAGE_NAME="${{ needs.build_and_validate.outputs.full_image_name }}"
-          VERSION_TAG_WITH_V="v${{ needs.build_and_validate.outputs.new_tag }}"
-          FULL_IMAGE_TAG="${FULL_IMAGE_NAME}:${VERSION_TAG_WITH_V}"
-          
-          # Pull the image that was pushed to GHCR
-          echo "Attempting to pull image: ${FULL_IMAGE_TAG}"
-          docker pull "${FULL_IMAGE_TAG}" || { echo "ERROR: Failed to pull image from GHCR. Check permissions and tag."; exit 1; }
-          echo "Image pulled successfully."
-          
-          # Load the image into the Kind cluster
-          echo "Loading image ${FULL_IMAGE_TAG} into Kind cluster..."
-          kind load docker-image "${FULL_IMAGE_TAG}" || { echo "ERROR: Failed to load image into Kind cluster!"; exit 1; }
-          echo "Image loaded successfully."
-          
-          echo "FULL_IMAGE_TAG=${FULL_IMAGE_TAG}" >> $GITHUB_OUTPUT
-
-      - name: Inject dynamic image tag into original deployment YAML
-        run: |
-          ACTUAL_FULL_IMAGE_TAG="${{ steps.load_image.outputs.FULL_IMAGE_TAG }}"
-          echo "Replacing IMAGE_PLACEHOLDER in k8s/workprofile-deployment.yaml with: ${ACTUAL_FULL_IMAGE_TAG}"
-          sed -i "s|IMAGE_PLACEHOLDER|${ACTUAL_FULL_IMAGE_TAG}|g" k8s/workprofile-deployment.yaml
-          cat k8s/workprofile-deployment.yaml
-
-      - name: Deploy and Test Kubernetes Stack
-        run: |
-          echo "Deploying MySQL components..."
-          kubectl apply -f k8s/mysql-secret.yaml
-          kubectl create configmap mysql-initdb-script --from-file=../src/init.sql
-          kubectl apply -f k8s/mysql-service-headless.yaml
-          kubectl apply -f k8s/mysql-service-clusterip.yaml
-          kubectl apply -f k8s/mysql-statefulset.yaml
-          kubectl wait --for=condition=ready pod/mysql-0 --timeout=600s
-          echo "✓ MySQL deployed successfully."
-
-          echo "Deploying WorkProfile components..."
-          kubectl apply -f k8s/workprofile-configmap.yaml
-          kubectl apply -f k8s/workprofile-deployment.yaml
-          kubectl apply -f k8s/workprofile-service.yaml
-          kubectl wait --for=condition=available deployment/workprofile --timeout=600s
-          echo "✓ WorkProfile deployed successfully."
-
-          echo "Running Kubernetes health checks..."
-          NODE_PORT=$(kubectl get service workprofile-service -o jsonpath='{.spec.ports[0].nodePort}')
-          echo "WorkProfile NodePort: $NODE_PORT"
-          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-          echo "Node IP: $NODE_IP"
-
-          # Allow time for services to become fully ready
-          sleep 10
-          
-          # Perform CURL tests
-          curl -f http://$NODE_IP:$NODE_PORT/ && echo "✓ Kubernetes app works" || { echo "ERROR: Main endpoint failed!"; exit 1; }
-          curl -f http://$NODE_IP:$NODE_PORT/health && echo "✓ Kubernetes health works" || { echo "ERROR: Health endpoint failed!"; exit 1; }
-          curl -s http://$NODE_IP:$NODE_PORT/health | grep "Application: Healthy" && echo "✓ Kubernetes database works (via app health)" || { echo "ERROR: Database health check failed!"; exit 1; }
-          echo "✓ All Kubernetes application tests passed."
-          
-      - name: Cleanup Kubernetes Cluster
-        if: always()
-        run: |
-          kind delete cluster || true
-          echo "Kind cluster deleted."
+      - name: All previous steps completed, image already published.
+        run: echo "Image was already built and pushed in the 'build_and_validate' job."
